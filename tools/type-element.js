@@ -1,7 +1,7 @@
 import { buildApprovalBundle } from "../lib/approval-bundle.js";
 import { saveApprovalBundle } from "../lib/approval-store.js";
 import { compareElementSignature } from "../lib/element-signature.js";
-import { parseJsonOutput, runPowerShell } from "../lib/powershell.js";
+import { parseJsonOutput, runUiaHelper } from "../lib/powershell.js";
 import { buildActionPlan, requireRealInputApproval, resolvePluginConfig, REAL_INPUT_CONFIRMATION } from "../lib/safety.js";
 import { findSnapshotElement, loadSnapshot } from "../lib/snapshot-store.js";
 import { buildVerificationRequest } from "../lib/verification.js";
@@ -280,10 +280,8 @@ try {
   // Hard gate: real UIA SetValue requires a VERIFIED signature. Writing text into an
   // unverified element is the highest-risk path, so an absent signature forces plan-only.
   if (approval.allowed && signatureVerified && canSetValue) {
-    setResult = parseJsonOutput(runPowerShell(buildSetValueScript({
-      ...commonScriptInput,
-      text: escapePowerShellSingleQuoted(input.text),
-    })), "type-element-setvalue");
+    const targetKey = storedElement?.name || storedElement?.automationId || String(targetIndex);
+    setResult = parseJsonOutput(runUiaHelper("uia-type", [effectiveHandle, targetKey, input.text]), "type-element");
   }
 
   const plan = buildActionPlan({

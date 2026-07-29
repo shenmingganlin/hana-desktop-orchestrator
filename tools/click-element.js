@@ -3,7 +3,7 @@ import { saveApprovalBundle } from "../lib/approval-store.js";
 import { buildCursorOverlay } from "../lib/cursor-overlay.js";
 import { getCursorOverlayClient } from "../lib/cursor-overlay-client.js";
 import { compareElementSignature } from "../lib/element-signature.js";
-import { parseJsonOutput, runPowerShell } from "../lib/powershell.js";
+import { parseJsonOutput, runUiaHelper } from "../lib/powershell.js";
 import { buildActionPlan, requireRealInputApproval, resolvePluginConfig, REAL_INPUT_CONFIRMATION } from "../lib/safety.js";
 import { findSnapshotElement, loadSnapshot } from "../lib/snapshot-store.js";
 import { buildVerificationRequest } from "../lib/verification.js";
@@ -296,27 +296,10 @@ try {
       }
     }
     if (useAutoId && autoIdResult) {
-      // automationId invoke: 直接 UIA Invoke
-      const invokeAutoIdScript = `
-\${JSON_RESULT_PREAMBLE}
-Add-Type -AssemblyName UIAutomationClient
-Add-Type -AssemblyName UIAutomationTypes
-try {
-  \$window = [System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]([int64]'\${escapePowerShellSingleQuoted(effectiveHandle)}'))
-  \$condition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, '\${escapePowerShellSingleQuoted(autoId)}')
-  \$match = \$window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, \$condition)
-  if (\$match) {
-    \$invoke = \$null
-    if (\$match.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]\$invoke)) {
-      \$invoke.Invoke()
-      Write-JsonResult @{ ok = \$true; method = 'automationId-invoke'; name = \$match.Current.Name }
-    } else { Write-JsonResult @{ ok = \$false; error = 'no-invoke-pattern' } }
-  } else { Write-JsonResult @{ ok = \$false; error = 'automationid-not-found' } }
-} catch { Write-JsonResult @{ ok = \$false; error = \$_.Exception.Message } }
-`;
-      invokeResult = parseJsonOutput(runPowerShell(invokeAutoIdScript), "click-element-autoid-invoke");
-    } else {
-      invokeResult = parseJsonOutput(runPowerShell(buildInvokeScript(scriptInput)), "click-element-invoke");
+      invokeResult = parseJsonOutput(runUiaHelper("uia-click", [effectiveHandle, autoId]), "click-element-auto");
+    } else if (storedElement?.name || targetIndex != null) {
+      const targetName = storedElement?.name || String(targetIndex);
+      invokeResult = parseJsonOutput(runUiaHelper("uia-click", [effectiveHandle, targetName]), "click-element");
     }
   }
 
