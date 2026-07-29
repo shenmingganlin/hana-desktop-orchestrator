@@ -1,5 +1,5 @@
 import { buildElementSignature } from "../lib/element-signature.js";
-import { parseJsonOutput, runUiaHelper, getForegroundWindowHwnd } from "../lib/powershell.js";
+import { parseJsonOutput, runUiaHelper } from "../lib/powershell.js";
 import { saveSnapshot } from "../lib/snapshot-store.js";
 
 export const name = "ui-tree";
