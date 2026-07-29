@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.2.2 - 2026-07-29
+
+### Added
+
+- `snapshot-window`: PrintWindow 窗口截图命令，支持 `--format png|jpeg`（用于 vision-click 场景）。
+- `snapshot-full --format jpeg`：截图可保存为 JPEG quality 85，2560×1600 约 450KB vs PNG 3.5MB（缩 87%）。
+- `mouse-drag` / `mouse-wheel` 搬到 `helper.exe`，降级到 PowerShell。
+- 插件配置项全部改为中文，去重，增加 PNG/JPEG 格式对比说明。
+
+### Changed
+
+- `snapshot.js`：`includeScreenshot=true` 时三次 helper 调用（snapshot + list-windows + dpi）合并为一次 `snapshot-full` 调用，省约 28% 耗时。
+- `lib/mouse-inject.js`：`mouseDrag` 和 `mouseWheel` 优先走 helper.exe，失败降级到 PS。
+- `manifest.json`：删除 visionApiBase/visionApiKey/visionModel 重复定义（9 项 → 6 项），全中文标题和描述。
+- `desktop-remote-operator` 技能：改为直接调 desktop-orchestrator 工具，不再经过 subagent 派 hanako。
+- 通信员 `ishiki.md`：移除 subagent 中转流程，改为直接调用插件工具。
+
+### Performance
+
+- `snapshot` with screenshot: 三次调用 ~380ms → 一次调用 ~275ms（-28%）。
+
 ## 0.2.1 - 2026-07-29
 
 ### Added
