@@ -49,6 +49,10 @@ class Program
                     return MouseClick(args);
                 case "window-info":
                     return WindowInfo(args);
+                case "focus":
+                    return Focus(args);
+                case "manage":
+                    return Manage(args);
                 default:
                     Console.Error.WriteLine($"Unknown verb: {verb}");
                     return 1;
@@ -390,6 +394,150 @@ class Program
     }
 
     // ═══════════════════════════════════════════════════════════════
+    //  focus  —  bring a window to foreground
+    // ═══════════════════════════════════════════════════════════════
+    static int Focus(string[] args)
+    {
+        if (args.Length < 2 || !long.TryParse(args[1], out long rawHandle))
+        {
+            Console.Error.WriteLine("{{\"error\":\"usage: focus <hwnd>\"}}");
+            return 1;
+        }
+        IntPtr hwnd = (IntPtr)rawHandle;
+        SetDpiAware();
+
+        bool ok = BringToForeground(hwnd);
+
+        var result = new { ok, action = "focus", handle = rawHandle };
+        Console.WriteLine(Serialize(result));
+        return ok ? 0 : 1;
+    }
+
+    static bool BringToForeground(IntPtr hWnd)
+    {
+        try
+        {
+            Win32.GetWindowThreadProcessId(hWnd, out uint targetTid);
+            uint myTid = Win32.GetCurrentThreadId();
+
+            if (targetTid != 0 && targetTid != myTid)
+            {
+                Win32.AttachThreadInput(myTid, targetTid, true);
+                bool r = Win32.SetForegroundWindow(hWnd);
+                Win32.AttachThreadInput(myTid, targetTid, false);
+                return r;
+            }
+            return Win32.SetForegroundWindow(hWnd);
+        }
+        catch { return Win32.SetForegroundWindow(hWnd); }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  manage  —  window state management
+    //  manage <hwnd> <action> [x y w h]
+    //  actions: maximize, minimize, restore, close, move, resize
+    // ═══════════════════════════════════════════════════════════════
+    static int Manage(string[] args)
+    {
+        if (args.Length < 3 || !long.TryParse(args[1], out long rawHandle))
+        {
+            Console.Error.WriteLine("{{\"error\":\"usage: manage <hwnd> <action> [params]\"}}");
+            return 1;
+        }
+        IntPtr hwnd = (IntPtr)rawHandle;
+        string action = args[2].ToLowerInvariant();
+        SetDpiAware();
+
+        // Capture state before
+        Win32.GetWindowRect(hwnd, out var beforeRect);
+        bool wasMaximized = Win32.IsZoomed(hwnd);
+        bool wasMinimized = Win32.IsIconic(hwnd);
+
+        bool ok = false;
+        string detail = "";
+
+        switch (action)
+        {
+            case "maximize":
+                ok = Win32.ShowWindow(hwnd, 3);  // SW_MAXIMIZE
+                detail = "SW_MAXIMIZE";
+                break;
+            case "minimize":
+                ok = Win32.ShowWindow(hwnd, 6);  // SW_MINIMIZE
+                detail = "SW_MINIMIZE";
+                break;
+            case "restore":
+                ok = Win32.ShowWindow(hwnd, 9);  // SW_RESTORE
+                detail = "SW_RESTORE";
+                if (!ok || !Win32.IsWindowVisible(hwnd))
+                {
+                    ok = Win32.ShowWindow(hwnd, 5);  // SW_SHOW
+                    detail = "SW_SHOW";
+                }
+                System.Threading.Thread.Sleep(100);
+                if (BringToForeground(hwnd)) detail += "+Foreground";
+                break;
+            case "close":
+                // WM_CLOSE = 0x0010
+                ok = Win32.PostMessage(hwnd, 0x0010, IntPtr.Zero, IntPtr.Zero);
+                detail = "WM_CLOSE";
+                break;
+            case "move":
+                if (args.Length < 5 || !int.TryParse(args[3], out int mx) || !int.TryParse(args[4], out int my))
+                {
+                    Console.Error.WriteLine("{{\"error\":\"move needs x y\"}}");
+                    return 1;
+                }
+                // SWP_NOSIZE(0x1) | SWP_NOZORDER(0x4) | SWP_NOACTIVATE(0x10) = 0x15
+                ok = Win32.SetWindowPos(hwnd, IntPtr.Zero, mx, my, 0, 0, 0x15);
+                detail = $"SetWindowPos move ({mx},{my})";
+                break;
+            case "resize":
+                if (args.Length < 7 ||
+                    !int.TryParse(args[3], out int rx) ||
+                    !int.TryParse(args[4], out int ry) ||
+                    !int.TryParse(args[5], out int rw) ||
+                    !int.TryParse(args[6], out int rh))
+                {
+                    Console.Error.WriteLine("{{\"error\":\"resize needs x y w h\"}}");
+                    return 1;
+                }
+                // SWP_NOZORDER(0x4) | SWP_NOACTIVATE(0x10) = 0x14
+                ok = Win32.SetWindowPos(hwnd, IntPtr.Zero, rx, ry, rw, rh, 0x14);
+                detail = $"SetWindowPos resize ({rw}x{rh})";
+                break;
+        }
+
+        System.Threading.Thread.Sleep(60);
+        bool stillExists = Win32.IsWindow(hwnd);
+        var afterRect = new Win32.RECT();
+        if (stillExists) Win32.GetWindowRect(hwnd, out afterRect);
+
+        var result = new
+        {
+            ok,
+            action = "manage",
+            subAction = action,
+            detail,
+            handle = rawHandle,
+            before = new
+            {
+                left = beforeRect.Left, top = beforeRect.Top,
+                right = beforeRect.Right, bottom = beforeRect.Bottom,
+                maximized = wasMaximized, minimized = wasMinimized
+            },
+            after = new
+            {
+                exists = stillExists,
+                left = afterRect.Left, top = afterRect.Top,
+                right = afterRect.Right, bottom = afterRect.Bottom
+            }
+        };
+        Console.WriteLine(Serialize(result));
+        return 0;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     //  Helpers
     // ═══════════════════════════════════════════════════════════════
 
@@ -479,6 +627,28 @@ internal static class Win32
 
     [DllImport("user32.dll")]
     public static extern bool ClientToScreen(IntPtr hWnd, ref POINT point);
+
+    [DllImport("user32.dll")]
+    public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    [DllImport("user32.dll")]
+    public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter,
+        int X, int Y, int cx, int cy, uint uFlags);
+
+    [DllImport("user32.dll")]
+    public static extern bool IsWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+
+    [DllImport("user32.dll")]
+    public static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("kernel32.dll")]
+    public static extern uint GetCurrentThreadId();
+
+    [DllImport("user32.dll")]
+    public static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 
     public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
 
