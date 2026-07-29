@@ -1,4 +1,6 @@
 import fs from "fs";
+import os from "os";
+import path from "path";
 
 export const name = "vision-query";
 export const description =
@@ -45,6 +47,19 @@ export async function execute(input = {}, ctx = {}) {
 
   if (!imagePath || !fs.existsSync(imagePath)) {
     return JSON.stringify({ ok: false, error: "截图文件不存在: " + imagePath });
+  }
+
+  // Safety: restrict imagePath to plugin-managed temp directory
+  // to prevent arbitrary file read exfiltration via vision API.
+  const allowedPrefix = path.join(os.tmpdir(), "hana-desktop-orchestrator");
+  const resolved = path.resolve(imagePath);
+  if (!resolved.startsWith(allowedPrefix)) {
+    return JSON.stringify({
+      ok: false,
+      error: "imagePath 超出允许目录范围",
+      detail: "仅允许 " + allowedPrefix + " 目录下的文件。请使用 snapshot 或 region-preview 截图。",
+      receivedPath: imagePath,
+    });
   }
   if (!target) {
     return JSON.stringify({ ok: false, error: "请指定要定位的目标描述" });

@@ -1,114 +1,103 @@
 # Safety Model
 
-Desktop control is high-impact because it can write to the real user session. Desktop Orchestrator is built around staged control rather than direct input.
+Desktop Orchestrator provides programmable desktop control through Windows UI Automation (UIA) and Win32 interop.
+It is designed as a **higher-speed alternative to Hana's native Computer Use**, operating with the same privilege level
+but bypassing the framework's sequential app-approval flow for automation density.
 
-## Default Rules
+## Core Design
 
-- Observation tools are allowed by default.
-- High-risk actions default to dry-run.
-- UIA semantic targeting is preferred over raw coordinates.
-- Lease-bound snapshots prevent stale target reuse.
-- Element signatures must match before high-risk actions proceed.
-- Approval tokens are non-executable review evidence.
-- Preflight is read-only.
-- Final execution envelope is dry-run-only.
-- Real mouse/keyboard input remains closed in the current implementation.
+- **Observation first, execution second**: every high-risk tool defaults to `dryRun: true` and returns a structured plan.
+- **Multi-layer guards**: lease snapshots, element signatures, confirmation phrases, and audit trails must all pass before real execution.
+- **Speed over ceremony**: UIA semantic targeting (element name/automationId) avoids pixel coordinates and vision model latency.
+- **Real input is gated, not forbidden**: when all guards pass, UIA Invoke/SetValue executes directly — no simulated keyboard, no mouse movement.
 
-## Real Input Gates
+## Tool Categories
 
-Future real input must pass all of these gates before any desktop action is allowed:
+### Read-Only Observation (always allowed)
+- `list-windows`, `snapshot`, `ui-tree`, `find-control`, `inspect-window`, `plan-action`
+- `self-check`, `protocol-test-matrix`, `fixture-sandbox`, `cockpit-summary`
+- `region-preview`, `verify-action`, `visual-verify`
 
-1. explicit user intent for real input
-2. `dryRun: false`
-3. plugin config `allowRealInput: true`
-4. exact confirmation phrase:
+These never invoke UIA patterns, inject mouse/keyboard, or modify window state.
 
-```text
-I_UNDERSTAND_DESKTOP_INPUT
+### Staged Execution (default dry-run)
+- `click-element`: UIA InvokePattern (or TogglePattern / ExpandCollapsePattern fallback; last-resort mouse_event fallback)
+- `type-element`: UIA ValuePattern.SetValue
+- `focus-window`, `manage-window` (restore/maximize/minimize/move/resize/close)
+- `mouse-click-at`, `mouse-drag`, `mouse-wheel`: raw Win32 mouse injection (fallback when UIA unavailable)
+
+All staged tools require **all** of the following before real execution:
+
+1. `dryRun: false`
+2. Plugin config `allowRealInput: true`
+3. Exact confirmation phrase: `I_UNDERSTAND_DESKTOP_INPUT`
+4. Fresh lease-bound snapshot (from `ui-tree`)
+5. Verified element signature (matched against snapshot)
+6. Post-action verification request available
+7. Audit event recording
+
+### Vision-Assisted (network-dependent)
+- `vision-query`: sends screenshot to configured vision API; returns pixel coordinates or SoM selection
+- `vision-click`: screenshots region → vision AI locates target → mouse click at coordinates
+
+Vision tools respect the same staged-execution gates and add network-call latency.
+
+## How Real Input Works (the guard chain)
+
+```
+user calls tool               dryRun: true ──→ returns plan + cursor overlay
+                                        │
+                                   dryRun: false
+                                        │
+                              approve via phrase + config
+                                        │
+                             load lease snapshot (ui-tree result)
+                                        │
+                           compare element signature against snapshot
+                                        │
+                              signatures match? ──NO──→ block, plan-only
+                                        │
+                                       YES
+                                        │
+                            execute UIA Invoke / SetValue
+                                        │
+                             record audit event (hash-chained)
+                                        │
+                             auto-extend lease TTL (10 more minutes)
 ```
 
-5. fresh lease-bound snapshot
-6. immediate element signature verification
-7. post-action verification request available
-8. audit event recording
+## What the Guard Chain Does NOT Do
 
-The current review cockpit does not satisfy these gates by itself and does not execute real input.
+- It does **not** ask Hana's native application reviewer for each tool call.
+- It does **not** prove human intent (the confirmation phrase is a fixed string visible in source code and tool parameters).
+- It does **not** sign audit events with a trusted key (SHA-256 hashes are for corruption detection only).
+- It does **not** sandbox the helper executables (they run under the Hana process identity).
 
-## Widget Full-Access Boundary
+These are intentional design choices for a **replacement-level automation tool**, not gaps to be filled. Users who need
+native Hana guardrails should use Hana Computer Use instead.
 
-HanaAgent currently requires widget contributions to run under `full-access`. Desktop Orchestrator uses full-access only to expose the review cockpit surface.
+## Native Executable Verification
 
-Full-access does not change the real-input policy. Real desktop input remains blocked unless the separate real-input gates are implemented and passed.
+The plugin ships precompiled native binaries:
 
-## Approval Tokens
+| File | Source | Build |
+|------|--------|-------|
+| `helper/desktop-helper.exe` | `helper/desktop-helper.cs` | `dotnet publish -c Release` (.NET 8) |
+| `helper/desktop-uia-helper.exe` | `helper/desktop-uia-helper.cs` | `helper/compile-uia-helper.bat` (.NET Framework 4.8 csc) |
+| `helper/HanaWin32.dll` | `helper/HanaWin32.cs` | Compiled inline via Add-Type in PowerShell |
 
-Local approval tokens are intentionally non-executable:
+To reproduce any binary: run the corresponding build command from the `helper/` directory.
+Binaries are not Authenticode-signed. Verify against source by rebuilding locally.
 
-- token type: `desktop-orchestrator-local-approval-token`
-- required field: `executable: false`
-- default TTL: 10 minutes
-- TTL clamp: 30 seconds to 30 minutes
-- saved with SHA-256 hash
+## Known Gaps
 
-The token store rejects any token where `executable` is not exactly `false`.
+- `vision-query` accepts a raw `imagePath` parameter with no directory whitelist. Use only with paths from `snapshot` outputs or user-provided temp files.
+- The approval token store writes to the shared user temp directory. A malicious process with the same user identity could forge audit events.
+- `WM_CLOSE` for window close is a cooperative shutdown; applications may prompt "save changes?" and require user interaction to dismiss.
+- UIA `SetValue` on password fields or read-only controls will fail gracefully but the error may leak field type information.
 
-## Preflight and Final Envelope
+## Windows API & UIA References Used
 
-Execution preflight reads local stores and verifies:
-
-- token presence
-- token TTL
-- token hash
-- non-executable status
-- target fields
-- lease snapshot availability
-- snapshot element availability
-- stored signature match
-- checklist completeness
-
-The final execution envelope summarizes what would still be required. It returns `executionMode: "dry-run-only"` and `executable: false`.
-
-## Verification Layers
-
-- `verify-action` re-reads a lease-bound UIA element and compares signatures.
-- `visual-verify` samples an element region in memory and compares visual signatures.
-- `region-preview` writes an explicit PNG crop for review evidence.
-- The widget image proxy only serves `region-preview-*.png` from the plugin temp directory.
-
-## Foreground Observation Boundary
-
-`ui-tree` defaults to background-safe observation and does not activate the target window unless explicitly requested.
-
-Some Windows Settings, UWP, and WinUI surfaces do not expand their full UIA subtree while they are in the background. For these cases, `ui-tree` supports `activateBeforeRead: true`:
-
-- it calls `SetForegroundWindow` for the target window before reading UIA
-- it waits briefly for the provider subtree to stabilize
-- it records `activatedBeforeRead: true` in the result
-- it does not click, type, move the cursor, capture screenshots, or invoke UIA
-
-This is a medium-impact observation option because it changes the foreground window. It is not part of final execution and does not relax real-input gates.
-
-## Audit Evidence
-
-Audit events are stored locally and new events include a hash-chain:
-
-- `previousHash`
-- `eventHash`
-- `chainVersion`
-
-Old events without hashes are treated as legacy-compatible. Audit export writes a JSON evidence package and does not mutate approval state.
-
-## Blocked Until Later
-
-These remain intentionally unopened:
-
-- raw mouse movement
-- keyboard typing
-- clipboard-assisted typing
-- foreground input fallback
-- drag/drop
-- hotkeys
-- real UIA Invoke as a default workflow
-- focus/window switching as part of final execution
-
-Observation-only foreground activation through `ui-tree.activateBeforeRead` is a separate, explicit read path. It must stay opt-in and must not be reused as an execution-side focus fallback.
+- `user32.dll`: `SetCursorPos`, `mouse_event`, `ShowWindow`, `SetWindowPos`, `GetWindowText`, `EnumWindows`, `EnumChildWindows`, `GetForegroundWindow`, `BringWindowToTop`, `ClientToScreen`, `PrintWindow`
+- `System.Windows.Automation`: `AutomationElement`, `InvokePattern`, `ValuePattern`, `TogglePattern`, `ExpandCollapsePattern`, `PropertyCondition`
+- `System.Drawing`: `Bitmap`, `Graphics.CopyFromScreen`

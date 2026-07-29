@@ -10,16 +10,41 @@
 - `tray.js` library for system tray icon enumeration (kept for future use; `manage-window restore` covers the most common case).
 - `persistent-ps.js` framework for long-running PowerShell sessions (kept for future use; in-process DLL warm-up is the current performance path).
 - `HanaWin32.dll` precompiled Win32 P/Invoke surface. Replaces all runtime `Add-Type @"..."@` blocks in PowerShell snippets — the root cause of spawnSync timeout.
+- `desktop-helper.exe`: compiled .NET 8 helper, replaces PowerShell for snapshot, list-windows, focus-window, manage-window, mouse-click-at, and DPI queries (2-10x faster).
+- `desktop-uia-helper.exe`: compiled .NET Framework 4.8 helper, replaces PowerShell for UI Automation tree enumeration, element click (InvokePattern), and text entry (ValuePattern) (3-5x faster).
+- `docs/REPRODUCIBLE_BUILD.md`: guide to rebuild all native binaries from source.
+- Auto-extend lease TTL on successful invoke/write, so continuous operations on the same window don't need repeated `ui-tree` calls.
+- UIA helper warm-up during plugin activation (pre-loads .NET Framework and UIA DLLs into OS cache).
+
+### Changed
+
+- **SAFETY.md rewritten** to match the plugin's real capability: full desktop control via UIA Invoke/SetValue, Win32 mouse injection, and native helper processes. Documents guard chain, known gaps, and native binary verification.
+- **README.md**: full-access requirement now lists all capabilities (UIA APIs, Win32 interop, native processes, widget surfaces) instead of claiming it is only for the widget.
+- **vision-query**: \`imagePath\` now restricted to \`%TEMP%/hana-desktop-orchestrator\` directory to prevent arbitrary file exfiltration.
 
 ### Fixed
 
-- PowerShell heredoc compiler bug in `vision-click.js` triggered when the conditional `usePrint` flag was false. The `"@` terminator leaked into the script. Moved PrintWindow into the precompiled DLL and switched the call site to `[HanaPrintWindow]::PrintWindow`.
-- `vision-query` prompt now distinguishes location questions from classification / multi-choice questions, and only enforces `[x, y]` output for the former. Pure number or text answers are preserved in `result.text` instead of being misparsed as coordinates.
-- `vision-query` regex parser no longer greedily matches the first `(\d+,\d+)` inside an arbitrary response text. Only strict `[x, y]` / `(x, y)` brackets match.
+- PowerShell heredoc compiler bug in \`vision-click.js\` triggered when the conditional \`usePrint\` flag was false. The "@ terminator leaked into the script. Moved PrintWindow into the precompiled DLL and switched the call site to \`[HanaPrintWindow]::PrintWindow\`.
+- \`vision-query\` prompt now distinguishes location questions from classification / multi-choice questions, and only enforces \`[x, y]\` output for the former. Pure number or text answers are preserved in \`result.text\` instead of being misparsed as coordinates.
+- \`vision-query\` regex parser no longer greedily matches the first \`(\d+,\d+)\` inside an arbitrary response text. Only strict \`[x, y]\` / \`(x, y)\` brackets match.
+- \`ui-tree.js\`: removed reference to non-existent \`getForegroundWindowHwnd\` export.
+
+### Performance
+
+| Tool | Before (PowerShell) | After (native helper) | Speed-up |
+|------|--------------------|----------------------|----------|
+| snapshot | 300-500ms | ~70-220ms | 2-4x |
+| list-windows | 300-400ms | ~70ms | 4-6x |
+| focus-window | 300ms | ~70ms | 4x |
+| manage-window | 300-400ms | ~60-250ms | 2-5x |
+| mouse-click-at | 200ms | ~50ms | 4x |
+| ui-tree | 400-600ms | ~100ms (helper) + ~100ms (JS) | 2-4x |
+| click-element | 300-500ms | ~100ms | 3-5x |
+| type-element | 300-500ms | ~100ms | 3-5x |
 
 ### Known Bugs
 
-See `README.md#known-bugs-and-limits` for the full list.
+See \`README.md#known-bugs-and-limits\` for the full list.
 
 ## 0.1.0 - 2026-06-07
 

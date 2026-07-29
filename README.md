@@ -8,7 +8,7 @@ It is designed as a stronger alternative to simple mouse/keyboard plugins: it se
 
 - Windows 10 / 11 (PowerShell 5.1 built-in; PowerShell 7 recommended for non-ASCII paths)
 - Node.js 18+
-- HanaAgent with full-access enabled (the plugin needs it for widget surfaces and direct mouse APIs)
+- HanaAgent with full-access enabled (the plugin needs it for UIA APIs, Win32 interop, native helper processes, and widget surfaces)
 - For `vision-query` / `vision-click`: a vision-capable LLM API (Anthropic-format or OpenAI-format). Defaults to MiniMax Anthropic. See configuration below.
 
 ## Install
@@ -123,7 +123,15 @@ It supports:
 - audit timeline display
 - audit evidence JSON export with hash-chain verification
 
-The widget uses `full-access` only because HanaAgent currently requires full-access to expose widget surfaces. This does not enable real desktop input.
+The widget uses \`full-access\` because the plugin operates at the same system-privilege level as Hana's native Computer Use. Full-access is required for:
+- UIA InvokePattern (click-element) and ValuePattern.SetValue (type-element)
+- Real mouse click, drag, and wheel injection (mouse-click-at, mouse-drag, mouse-wheel)
+- Window focus, move, resize, minimize, maximize, and close (focus-window, manage-window)
+- Screen capture via PrintWindow / CopyFromScreen (snapshot, region-preview)
+- Native helper process execution (desktop-helper.exe, desktop-uia-helper.exe)
+- Widget review cockpit surface
+
+All high-risk tools default to \`dryRun: true\` and require explicit confirmation plus signature verification before real execution. See [\`docs/SAFETY.md\`](docs/SAFETY.md) for the full guard chain.
 
 ## Audit Evidence
 
