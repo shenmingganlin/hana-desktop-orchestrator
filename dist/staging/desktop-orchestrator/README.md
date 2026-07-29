@@ -4,6 +4,56 @@ Desktop Orchestrator is a guarded Windows desktop control platform for HanaAgent
 
 It is designed as a stronger alternative to simple mouse/keyboard plugins: it separates observation, targeting, planning, approval, execution preflight, and verification so desktop control can become powerful without becoming reckless.
 
+## Requirements
+
+- Windows 10 / 11 (PowerShell 5.1 built-in; PowerShell 7 recommended for non-ASCII paths)
+- Node.js 18+
+- HanaAgent with full-access enabled (the plugin needs it for widget surfaces and direct mouse APIs)
+- For `vision-query` / `vision-click`: a vision-capable LLM API (Anthropic-format or OpenAI-format). Defaults to MiniMax Anthropic. See configuration below.
+
+## Install
+
+1. Drop the `desktop-orchestrator` folder into your HanaAgent plugins directory (default `~/.hanako/plugins/`).
+2. Restart HanaAgent so the plugin loader scans and registers the tool list.
+3. Open the plugin settings page and fill in the vision API fields if you want vision tools.
+
+The plugin directory must contain `manifest.json`, `index.js`, and the `tools/`, `lib/`, `routes/`, `helper/` folders. Source `desktop-orchestrator-v0.2.1-完整版.zip` is a redistributable bundle; the development repo is this folder.
+
+## Configuration
+
+Plugin config (stored in `%APPDATA%/hana-desktop-orchestrator/config.json` or the plugin-data folder):
+
+| Key | Description | Default |
+| --- | --- | --- |
+| `allowRealInput` | Master switch for real mouse/keyboard actions. High-risk tools check this on every invoke. | `true` (when explicitly enabled) |
+| `defaultSnapshotFormat` | Screenshot encoding. | `png` |
+| `maxWindowResults` | How many windows `list-windows` returns. | `40` |
+| `visionApiBase` | Vision API base URL (Anthropic-format like `https://api.minimaxi.com/anthropic` or OpenAI-format). | empty |
+| `visionApiKey` | Vision API key. | empty |
+| `visionModel` | Vision model id, e.g. `MiniMax-M3`, `claude-3-5-sonnet-20241022`, `gpt-4o`. | empty |
+
+Without a vision config, `vision-query` and `vision-click` return a clear error explaining how to set it.
+
+## Safety
+
+High-risk tools default to dry-run. Real input requires three gates:
+
+1. `dryRun: false` in the tool input.
+2. `allowRealInput: true` in the plugin config.
+3. The exact confirmation phrase `I_UNDERSTAND_DESKTOP_INPUT`.
+
+Any missing gate returns a dry-run envelope without touching the system. The plugin keeps an append-only local audit timeline at `%TEMP%/hana-desktop-orchestrator/audit-timeline.json`.
+
+## Known Bugs and Limits
+
+These are real issues found during development and stress testing. PRs welcome.
+
+- **MiniMax vision-query coordinate regression is unreliable.** Direct "give me the pixel coordinates of X" questions return coordinates with ~100px+ error even when the target is large and obvious. M3 is better than M2 at SoM-style multi-choice questions but still loses to a human pixel estimate.
+- **Hana framework caches the tool list at install time.** New `tools/*.js` files added after the first plugin load are NOT auto-registered; you must reinstall the plugin (drag the folder back into Hana's install surface) for new tools to appear.
+- **`focus-window` returns `ok: false` for some Electron/WebView2 windows** because UIPI prevents non-foreground thread input attach. `manage-window restore` with the `SW_RESTORE+Foreground` detail path is a more reliable fallback.
+- **PowerShell 5.1 multi-line here-string compilation sometimes fails** when inlined through JavaScript template literals that contain conditional heredoc headers. We removed all such patterns in this release; if you add new tools, prefer `HanaWin32.dll` for any new Win32 bindings.
+- **Some Electron apps (Tabbit, Chrome) hide page content behind GPU `Intermediate D3D Window`** so UIA only sees the browser chrome. Vision is the only path to interact with page internals.
+
 ## Design Position
 
 This project is not a clone of HanaAgent's experimental Computer Use and not a thin wrapper around raw mouse clicks.
@@ -40,6 +90,12 @@ It aims to provide:
 | `desktop-orchestrator_protocol-test-matrix` | Exercise non-destructive token rejection and dry-run gate cases | Low |
 | `desktop-orchestrator_fixture-sandbox` | Run pure in-memory protocol fixtures for pass/block scenarios | Low |
 | `desktop-orchestrator_cockpit-summary` | Aggregate self-check, protocol matrix, and fixture sandbox status | Low |
+| `desktop-orchestrator_manage-window` | Move / resize / minimize / maximize / restore / close a window. Uses `SW_RESTORE+Foreground` for reliable restore. | Medium |
+| `desktop-orchestrator_mouse-click-at` | Mode 2: real `SetCursorPos` + `mouse_event` with pre-injection guard (verifies target window at click point). | High |
+| `desktop-orchestrator_mouse-drag` | Real mouse drag from start to end coordinates with guard. | High |
+| `desktop-orchestrator_mouse-wheel` | Real mouse wheel at coordinates. | High |
+| `desktop-orchestrator_vision-query` | Send a screenshot to the configured vision API and return coordinates / text answer. | Low (read-only) |
+| `desktop-orchestrator_vision-click` | PrintWindow + visual analysis + return click plan with `coordinateContract`. | Medium |
 
 `find-control` is the first higher-level read tool built on top of `ui-tree`: callers can ask for a button, input box, list item, AutomationId, class name, or supported pattern without manually scanning the full UIA tree.
 

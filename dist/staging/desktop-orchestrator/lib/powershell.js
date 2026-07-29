@@ -74,6 +74,35 @@ export function runPowerShell(scriptContent, { timeoutMs = 30000 } = {}) {
   }
 }
 
+let warmupDone = false;
+
+/**
+ * Warm up the PowerShell environment by pre-loading HanaWin32.dll
+ * into the OS file cache. Call once during plugin activation.
+ * Subsequent spawnSync calls will skip the ~200-400ms DLL load overhead.
+ */
+export function warmup() {
+  if (warmupDone) return;
+  warmupDone = true;
+  // Fire-and-forget: spawn a hidden PS that preloads the DLL and exits.
+  const warmupScript = `Add-Type -Path "${HANA_WIN32_DLL}"`;
+  const id = `warmup-${Date.now()}`;
+  const tempDir = path.join(os.tmpdir(), "hana-desktop-orchestrator");
+  fs.mkdirSync(tempDir, { recursive: true });
+  const psPath = path.join(tempDir, `warmup-${id}.ps1`);
+  try {
+    fs.writeFileSync(psPath, `\uFEFF${warmupScript}`, "utf8");
+    const ps = `${process.env.SystemRoot || "C:\\Windows"}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`;
+    const child = spawnSync(ps, ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", psPath], {
+      timeout: 15000, windowsHide: true,
+    });
+    if (child.status === 0) {
+      // DLL cached by OS
+    }
+  } catch { /* warmup is best-effort */ }
+  finally { try { fs.unlinkSync(psPath); } catch {} }
+}
+
 export function parseJsonOutput(result, label = "PowerShell") {
   if (!result.ok) {
     throw new Error(`${label} failed: ${result.error}${result.stderr ? `\n${result.stderr}` : ""}`);

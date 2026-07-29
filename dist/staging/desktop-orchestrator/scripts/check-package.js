@@ -57,8 +57,10 @@ const expectedTools = [
   "focus-window.js",
   "inspect-window.js",
   "list-windows.js",
+  "manage-window.js",
   "mouse-click-at.js",
   "mouse-drag.js",
+  "mouse-wheel.js",
   "plan-action.js",
   "protected-click.js",
   "protocol-test-matrix.js",
@@ -68,6 +70,8 @@ const expectedTools = [
   "type-element.js",
   "ui-tree.js",
   "verify-action.js",
+  "vision-click.js",
+  "vision-query.js",
   "visual-verify.js",
 ];
 
@@ -100,7 +104,7 @@ checks.push(check("manifest-version-matches-package", manifest.version === pkg.v
 checks.push(check("manifest-full-access-documented", manifest.trust === "full-access" && exists("docs/APPROVAL_WIDGET.md"), { trust: manifest.trust }));
 checks.push(check("real-input-default-disabled", manifest.contributes?.configuration?.properties?.allowRealInput?.default === false));
 checks.push(check("widget-contribution-present", Boolean(manifest.contributes?.widget?.route), { route: manifest.contributes?.widget?.route || null }));
-checks.push(check("package-private", pkg.private === true));
+checks.push(check("package-private", pkg.private === false, `private=${pkg.private}. Set to false for open-source publishing.`));
 checks.push(check("package-module", pkg.type === "module", { type: pkg.type }));
 
 for (const relativePath of requiredFiles) {

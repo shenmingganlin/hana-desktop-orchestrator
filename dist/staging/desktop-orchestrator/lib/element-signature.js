@@ -23,6 +23,19 @@ export function buildElementSignature(element = {}) {
   return crypto.createHash("sha256").update(payload).digest("hex").slice(0, 16);
 }
 
+/**
+ * Build a matchKey from element properties, following the same format as ui-tree's PS output.
+ * Format: "aid:{automationId}|name:{name}|role:{role}|cls:{className}"
+ */
+export function buildMatchKey(element = {}) {
+  const parts = [];
+  if (element.automationId) parts.push(`aid:${element.automationId}`);
+  if (element.name) parts.push(`name:${element.name}`);
+  parts.push(`role:${element.role || ''}`);
+  if (element.className) parts.push(`cls:${element.className}`);
+  return parts.join('|');
+}
+
 export function compareElementSignature(element = {}, expectedSignature = "") {
   const actualSignature = buildElementSignature(element);
   const expected = String(expectedSignature || "").trim();

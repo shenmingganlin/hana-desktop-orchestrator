@@ -3,6 +3,7 @@ import os from "os";
 import path from "path";
 import { parseJsonOutput, runPowerShell } from "../lib/powershell.js";
 import { DPI_SNIPPET, DPI_AWARE_SNIPPET, JSON_RESULT_PREAMBLE, WINDOW_API_SNIPPET } from "../lib/windows.js";
+import { buildCoordinateContract } from "../lib/coord-contract.js";
 
 export const name = "snapshot";
 export const description = "采集桌面状态：DPI、活动窗口、可见窗口列表，并可选返回一张全屏截图。";
@@ -11,6 +12,22 @@ export const parameters = {
   properties: {
     includeScreenshot: { type: "boolean", default: false, description: "是否截取全屏截图" },
     maxWindows: { type: "integer", default: 30, minimum: 1, maximum: 100, description: "最多返回窗口数量" },
+    area: {
+      oneOf: [
+        { type: "string", enum: ["fullscreen"] },
+        { type: "string", enum: ["window"] },
+        {
+          type: "object",
+          properties: {
+            windowHandle: { type: "string" },
+            captureMethod: { type: "string", enum: ["auto", "screen", "printWindow"], default: "auto" },
+          },
+          required: ["windowHandle"],
+        },
+      ],
+      default: "fullscreen",
+      description: "截图区域：fullscreen(全屏) / window(按窗口句柄)",
+    },
   },
 };
 
@@ -68,6 +85,25 @@ Write-JsonResult @{
 `;
 
   const snapshot = parseJsonOutput(runPowerShell(script), "snapshot");
+
+  // Attach the image→physical-pixel coordinate contract ONLY when a screenshot is
+  // returned (otherwise there is no image to map). Uses the true physical screen
+  // region the capture covered, so ratio-based targeting maps to clickable pixels.
+  if (includeScreenshot && snapshot?.screen) {
+    Object.assign(
+      snapshot,
+      buildCoordinateContract(
+        {
+          left: snapshot.screen.left,
+          top: snapshot.screen.top,
+          width: snapshot.screen.width,
+          height: snapshot.screen.height,
+        },
+        { kind: "full-screen" }
+      )
+    );
+  }
+
   const content = [{ type: "text", text: JSON.stringify(snapshot, null, 2) }];
   const details = { action: "snapshot", snapshot };
 

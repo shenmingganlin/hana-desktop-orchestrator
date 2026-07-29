@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.2.1 - 2026-07-29
+
+### Added
+
+- `manage-window` with `move` / `resize` / `minimize` / `maximize` / `restore` / `close`. Restore uses `SW_RESTORE + SetForegroundWindow` (more reliable than the UIA-only path).
+- `mouse-click-at`, `mouse-drag`, `mouse-wheel` for raw mode 2 input with pre-injection hit-window guard and live cursor-flight preview.
+- `vision-query` and `vision-click` for vision-model-driven element location on GPU-rendered apps that UIA cannot see into.
+- `tray.js` library for system tray icon enumeration (kept for future use; `manage-window restore` covers the most common case).
+- `persistent-ps.js` framework for long-running PowerShell sessions (kept for future use; in-process DLL warm-up is the current performance path).
+- `HanaWin32.dll` precompiled Win32 P/Invoke surface. Replaces all runtime `Add-Type @"..."@` blocks in PowerShell snippets — the root cause of spawnSync timeout.
+
+### Fixed
+
+- PowerShell heredoc compiler bug in `vision-click.js` triggered when the conditional `usePrint` flag was false. The `"@` terminator leaked into the script. Moved PrintWindow into the precompiled DLL and switched the call site to `[HanaPrintWindow]::PrintWindow`.
+- `vision-query` prompt now distinguishes location questions from classification / multi-choice questions, and only enforces `[x, y]` output for the former. Pure number or text answers are preserved in `result.text` instead of being misparsed as coordinates.
+- `vision-query` regex parser no longer greedily matches the first `(\d+,\d+)` inside an arbitrary response text. Only strict `[x, y]` / `(x, y)` brackets match.
+
+### Known Bugs
+
+See `README.md#known-bugs-and-limits` for the full list.
+
 ## 0.1.0 - 2026-06-07
 
 ### Added

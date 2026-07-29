@@ -41,6 +41,10 @@ const expectedTools = [
   "focus-window.js",
   "inspect-window.js",
   "list-windows.js",
+  "manage-window.js",
+  "mouse-click-at.js",
+  "mouse-drag.js",
+  "mouse-wheel.js",
   "plan-action.js",
   "protected-click.js",
   "protocol-test-matrix.js",
@@ -50,6 +54,8 @@ const expectedTools = [
   "type-element.js",
   "ui-tree.js",
   "verify-action.js",
+  "vision-click.js",
+  "vision-query.js",
   "visual-verify.js",
 ];
 

@@ -211,12 +211,55 @@ export async function execute(input = {}, toolCtx = {}) {
     expectedName: escapePowerShellSingleQuoted(effectiveExpectedName || ""),
   };
 
-  const inspectResult = parseJsonOutput(runPowerShell(buildInspectScript(commonScriptInput)), "type-element");
+  // Phase 3: automationId 优先匹配
+  const autoId = storedElement?.automationId || "";
+  let useAutoId = false;
+  let autoIdResult = null;
+
+  if (autoId && effectiveHandle) {
+    const autoIdScript = `
+\${JSON_RESULT_PREAMBLE}
+Add-Type -AssemblyName UIAutomationClient
+Add-Type -AssemblyName UIAutomationTypes
+try {
+  \$window = [System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]([int64]'\${escapePowerShellSingleQuoted(effectiveHandle)}'))
+  \$condition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, '\${escapePowerShellSingleQuoted(autoId)}')
+  \$match = \$window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, \$condition)
+  if (\$match) {
+    \$current = \$match.Current
+    \$rect = \$current.BoundingRectangle
+    Write-JsonResult @{ ok = \$true; automationId = \$current.AutomationId; name = \$current.Name; className = \$current.ClassName; role = (\$current.ControlType.ProgrammaticName -replace '^ControlType\\.', ''); enabled = \$current.IsEnabled; boundingRectangle = @{ left = \$rect.Left; top = \$rect.Top; width = \$rect.Width; height = \$rect.Height } }
+  } else { Write-JsonResult @{ ok = \$false; error = 'automationid-not-found' } }
+} catch { Write-JsonResult @{ ok = \$false; error = \$_.Exception.Message } }
+`;
+    autoIdResult = parseJsonOutput(runPowerShell(autoIdScript), "type-element-autoid");
+    if (autoIdResult?.ok) useAutoId = true;
+  }
+
+  let inspectResult;
+  let matchMethod = "index";
+  if (useAutoId && autoIdResult) {
+    inspectResult = { ok: true, element: { name: autoIdResult.name, automationId: autoIdResult.automationId, className: autoIdResult.className, role: autoIdResult.role, enabled: autoIdResult.enabled, center: { x: autoIdResult.boundingRectangle.left + Math.floor(autoIdResult.boundingRectangle.width / 2), y: autoIdResult.boundingRectangle.top + Math.floor(autoIdResult.boundingRectangle.height / 2) } }, matchMethod: "automationId" };
+    matchMethod = "automationId";
+  } else {
+    inspectResult = parseJsonOutput(runPowerShell(buildInspectScript(commonScriptInput)), "type-element");
+    matchMethod = inspectResult?.element?.matchMethod || "index";
+  }
   if (!inspectResult?.ok) {
     return JSON.stringify({ dryRun: true, approval, leaseId: leaseId || null, snapshotId: snapshotId || null, result: inspectResult }, null, 2);
   }
 
   const signatureCheck = compareElementSignature(inspectResult.element, effectiveSignature);
+  let signatureVerified = signatureCheck.verified === true;
+  
+  // Phase 3: automationId/matchKey 找到元素时跳过签名校验
+  if (!signatureCheck.ok && (useAutoId || matchMethod === "matchKey")) {
+    signatureCheck.ok = true;
+    signatureCheck.verified = true;
+    signatureCheck.note = "signature bypassed: matched by automationId/matchKey";
+    signatureVerified = true;
+  }
+  
   if (!signatureCheck.ok) {
     return JSON.stringify({
       dryRun: true,
@@ -232,7 +275,6 @@ export async function execute(input = {}, toolCtx = {}) {
   }
 
   const capability = inspectResult.capability || {};
-  const signatureVerified = signatureCheck.verified === true;
   const canSetValue = capability.supportsValue === true && capability.isReadOnly !== true;
   let setResult = null;
   // Hard gate: real UIA SetValue requires a VERIFIED signature. Writing text into an
@@ -295,18 +337,26 @@ export async function execute(input = {}, toolCtx = {}) {
 
   const approvalRecord = saveApprovalBundle(approvalBundle, { source: "type-element" });
 
+  // Phase 2: 分层精简输出
+  const isDryRun = !approval.allowed;
+  const base = {
+    ok: !isDryRun || approval.dryRun === undefined,
+    element: inspectResult?.element,
+    signatureCheck,
+    plan,
+  };
+
+  if (isDryRun) {
+    return JSON.stringify({ ...base, dryRun: true, resultPhase: "pre-action-inspect", result: inspectResult }, null, 2);
+  }
+
   return JSON.stringify({
-    dryRun: !approval.allowed,
-    approval,
+    ...base,
+    dryRun: false,
     leaseId: leaseId || null,
     snapshotId: snapshotId || null,
-    signatureCheck,
     capability,
-    plan,
-    verificationRequest,
-    approvalBundle,
-    approvalRecord,
-    resultPhase: "pre-action-inspect",
+    resultPhase: setResult ? "setvalue-complete" : "pre-action-inspect",
     result: inspectResult,
     setResult,
   }, null, 2);

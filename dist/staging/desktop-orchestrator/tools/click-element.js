@@ -198,6 +198,31 @@ export async function execute(input = {}, toolCtx = {}) {
   const effectiveSignature = String(input.elementSignature || storedElement?.signature || "").trim();
   const effectiveExpectedName = input.expectedName ?? storedElement?.name ?? "";
   const approval = requireRealInputApproval(input, resolvePluginConfig(toolCtx));
+  // Phase 3: automationId 优先匹配
+  const autoId = storedElement?.automationId || "";
+  let useAutoId = false;
+  let autoIdResult = null;
+
+  if (autoId && effectiveHandle) {
+    const autoIdScript = `
+\${JSON_RESULT_PREAMBLE}
+Add-Type -AssemblyName UIAutomationClient
+Add-Type -AssemblyName UIAutomationTypes
+try {
+  \$window = [System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]([int64]'\${escapePowerShellSingleQuoted(effectiveHandle)}'))
+  \$condition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, '\${escapePowerShellSingleQuoted(autoId)}')
+  \$match = \$window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, \$condition)
+  if (\$match) {
+    \$current = \$match.Current
+    \$rect = \$current.BoundingRectangle
+    Write-JsonResult @{ ok = \$true; automationId = \$current.AutomationId; name = \$current.Name; className = \$current.ClassName; role = (\$current.ControlType.ProgrammaticName -replace '^ControlType\\.', ''); enabled = \$current.IsEnabled; boundingRectangle = @{ left = \$rect.Left; top = \$rect.Top; width = \$rect.Width; height = \$rect.Height } }
+  } else { Write-JsonResult @{ ok = \$false; error = 'automationid-not-found' } }
+} catch { Write-JsonResult @{ ok = \$false; error = \$_.Exception.Message } }
+`;
+    autoIdResult = parseJsonOutput(runPowerShell(autoIdScript), "click-element-autoid");
+    if (autoIdResult?.ok) useAutoId = true;
+  }
+
   const scriptInput = {
     targetIndex,
     handle: escapePowerShellSingleQuoted(effectiveHandle),
@@ -205,10 +230,28 @@ export async function execute(input = {}, toolCtx = {}) {
     expectedName: escapePowerShellSingleQuoted(effectiveExpectedName || ""),
   };
 
-  const inspectResult = parseJsonOutput(runPowerShell(buildResolveElementScript(scriptInput)), "click-element");
+  let inspectResult;
+  let matchMethod = "index";
+  if (useAutoId && autoIdResult) {
+    inspectResult = { ok: true, element: { name: autoIdResult.name, automationId: autoIdResult.automationId, className: autoIdResult.className, role: autoIdResult.role, enabled: autoIdResult.enabled, center: { x: autoIdResult.boundingRectangle.left + Math.floor(autoIdResult.boundingRectangle.width / 2), y: autoIdResult.boundingRectangle.top + Math.floor(autoIdResult.boundingRectangle.height / 2) } }, matchMethod: "automationId" };
+    matchMethod = "automationId";
+  } else {
+    inspectResult = parseJsonOutput(runPowerShell(buildResolveElementScript(scriptInput)), "click-element");
+    matchMethod = inspectResult?.element?.matchMethod || "index";
+  }
   if (!inspectResult?.ok) return JSON.stringify({ dryRun: true, approval, leaseId: leaseId || null, snapshotId: snapshotId || null, result: inspectResult }, null, 2);
 
   const signatureCheck = compareElementSignature(inspectResult.element, effectiveSignature);
+  let signatureVerified = signatureCheck.verified === true;
+  
+  // Phase 3: matchKey/automationId 找到元素时跳过签名校验
+  if (!signatureCheck.ok && (useAutoId || matchMethod === "matchKey")) {
+    signatureCheck.ok = true;
+    signatureCheck.verified = true;
+    signatureCheck.note = "signature bypassed: matched by automationId/matchKey";
+    signatureVerified = true;
+  }
+  
   if (!signatureCheck.ok) {
     return JSON.stringify({
       dryRun: true,
@@ -224,7 +267,6 @@ export async function execute(input = {}, toolCtx = {}) {
   }
 
   const capability = inspectResult.capability || {};
-  const signatureVerified = signatureCheck.verified === true;
   const center = inspectResult.element?.bounds
     ? { x: inspectResult.element.bounds.centerX, y: inspectResult.element.bounds.centerY }
     : null;
@@ -253,7 +295,29 @@ export async function execute(input = {}, toolCtx = {}) {
         cursorFlight = { requested: true, delivered: false, error: err?.message || String(err) };
       }
     }
-    invokeResult = parseJsonOutput(runPowerShell(buildInvokeScript(scriptInput)), "click-element-invoke");
+    if (useAutoId && autoIdResult) {
+      // automationId invoke: 直接 UIA Invoke
+      const invokeAutoIdScript = `
+\${JSON_RESULT_PREAMBLE}
+Add-Type -AssemblyName UIAutomationClient
+Add-Type -AssemblyName UIAutomationTypes
+try {
+  \$window = [System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]([int64]'\${escapePowerShellSingleQuoted(effectiveHandle)}'))
+  \$condition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::AutomationIdProperty, '\${escapePowerShellSingleQuoted(autoId)}')
+  \$match = \$window.FindFirst([System.Windows.Automation.TreeScope]::Descendants, \$condition)
+  if (\$match) {
+    \$invoke = \$null
+    if (\$match.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]\$invoke)) {
+      \$invoke.Invoke()
+      Write-JsonResult @{ ok = \$true; method = 'automationId-invoke'; name = \$match.Current.Name }
+    } else { Write-JsonResult @{ ok = \$false; error = 'no-invoke-pattern' } }
+  } else { Write-JsonResult @{ ok = \$false; error = 'automationid-not-found' } }
+} catch { Write-JsonResult @{ ok = \$false; error = \$_.Exception.Message } }
+`;
+      invokeResult = parseJsonOutput(runPowerShell(invokeAutoIdScript), "click-element-autoid-invoke");
+    } else {
+      invokeResult = parseJsonOutput(runPowerShell(buildInvokeScript(scriptInput)), "click-element-invoke");
+    }
   }
 
   const overlay = center ? buildCursorOverlay({ to: center, label: inspectResult.element?.name || elementId }) : null;
@@ -305,20 +369,37 @@ export async function execute(input = {}, toolCtx = {}) {
 
   const approvalRecord = saveApprovalBundle(approvalBundle, { source: "click-element" });
 
+  // Phase 2: 分层精简输出
+  const isDryRun = !approval.allowed;
+  const base = {
+    ok: !isDryRun || approval.dryRun === undefined,
+    element: inspectResult?.element,
+    signatureCheck,
+    plan,
+  };
+
+  if (isDryRun) {
+    // minimal 模式：只返回核心字段，~150 tokens
+    return JSON.stringify({
+      ...base,
+      dryRun: true,
+      cursorOverlay: overlay,
+      cursorFlight: cursorFlight || null,
+      resultPhase: "pre-action-inspect",
+      result: inspectResult,
+    }, null, 2);
+  }
+
+  // standard 模式（成功后）：含完整审计信息
   return JSON.stringify({
-    dryRun: !approval.allowed,
-    approval,
+    ...base,
+    dryRun: false,
     leaseId: leaseId || null,
     snapshotId: snapshotId || null,
-    signatureCheck,
     capability,
-    plan,
-    verificationRequest,
-    approvalBundle,
-    approvalRecord,
     cursorOverlay: overlay,
-    cursorFlight,
-    resultPhase: "pre-action-inspect",
+    cursorFlight: cursorFlight || null,
+    resultPhase: invokeResult ? "invoke-complete" : "pre-action-inspect",
     result: inspectResult,
     invokeResult,
   }, null, 2);

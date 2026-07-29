@@ -4,6 +4,7 @@ import path from "path";
 import { parseJsonOutput, runPowerShell } from "../lib/powershell.js";
 import { findSnapshotElement, loadSnapshot } from "../lib/snapshot-store.js";
 import { JSON_RESULT_PREAMBLE } from "../lib/windows.js";
+import { buildCoordinateContract } from "../lib/coord-contract.js";
 
 export const name = "region-preview";
 export const description = "把 lease 绑定元素的屏幕区域裁剪成 PNG 预览图。只截图，不点击、不输入、不移动鼠标。";
@@ -107,7 +108,11 @@ export async function execute(input = {}, toolCtx = {}) {
   const outputPath = path.join(os.tmpdir(), "hana-desktop-orchestrator", `region-preview-${Date.now()}-${elementId}.png`).replace(/\\/g, "/");
 
   const result = parseJsonOutput(runPowerShell(buildCaptureScript({ left, top, width, height, outputPath })), "region-preview");
-  const content = [{ type: "text", text: JSON.stringify({ leaseId, snapshotId, elementId, ...result }, null, 2) }];
+
+  // The cropped image maps 1:1 to result.region (physical pixels). Attach the
+  // contract so ratio-based targeting on this crop resolves to clickable pixels.
+  const contract = result?.ok && result?.region ? buildCoordinateContract(result.region, { kind: "region-preview" }) : {};
+  const content = [{ type: "text", text: JSON.stringify({ leaseId, snapshotId, elementId, ...result, ...contract }, null, 2) }];
   const details = { action: "region-preview", leaseId, snapshotId, elementId, result };
 
   if (result?.ok && result?.filePath && fs.existsSync(result.filePath) && toolCtx.stageFile) {

@@ -264,6 +264,7 @@ foreach ($el in $found) {
   $label = @($current.Name, $current.AutomationId, $current.ClassName) | Where-Object { $_ } | Select-Object -First 1
   if (-not $label -and $current.ControlType.ProgrammaticName) { $label = $current.ControlType.ProgrammaticName }
   $elementId = 'el-' + $index
+  $matchKey = "aid:" + $current.AutomationId + "|name:" + $current.Name + "|role:" + ($current.ControlType.ProgrammaticName -replace '^ControlType\\.', '') + "|cls:" + $current.ClassName
   [void]$elements.Add(@{
     elementId = $elementId
     index = $index
@@ -276,6 +277,7 @@ foreach ($el in $found) {
     bounds = Rect-ToJson $rect $true
     patterns = @(Pattern-Names $el)
     label = $label
+    matchKey = $matchKey
   })
   $index++
 }

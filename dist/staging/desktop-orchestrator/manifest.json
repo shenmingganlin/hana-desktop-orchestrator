@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "desktop-orchestrator",
   "name": "Desktop Orchestrator",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "description": "A powerful but guarded Windows desktop control platform for HanaAgent. Provides desktop snapshots, window targeting, action planning, and protected input execution.",
   "author": {
     "name": "Ganlin & ChatGPT"
@@ -26,6 +26,24 @@
     },
     "configuration": {
       "properties": {
+        "visionApiKey": {
+          "type": "string",
+          "default": "",
+          "title": "Vision Model API Key",
+          "description": "视觉模型的 API Key"
+        },
+        "visionModel": {
+          "type": "string",
+          "default": "",
+          "title": "Vision Model Name",
+          "description": "视觉模型名称，如 MiniMax-M3、gpt-4o、gemini-2.0-flash-vision"
+        },
+        "visionApiBase": {
+          "type": "string",
+          "default": "",
+          "title": "Vision Model API Base URL",
+          "description": "视觉模型 API 地址（OpenAI 或 Anthropic 兼容格式），如 https://api.minimaxi.com/anthropic"
+        },
         "allowRealInput": {
           "type": "boolean",
           "default": false,
@@ -44,6 +62,24 @@
           "minimum": 1,
           "maximum": 200,
           "title": "Maximum windows returned in snapshots"
+        },
+        "visionApiBase": {
+          "type": "string",
+          "default": "",
+          "title": "Vision Model API Base URL",
+          "description": "视觉模型 API 地址（OpenAI 或 Anthropic 兼容格式），如 https://api.minimaxi.com/anthropic"
+        },
+        "visionApiKey": {
+          "type": "string",
+          "default": "",
+          "title": "Vision Model API Key",
+          "description": "视觉模型的 API Key"
+        },
+        "visionModel": {
+          "type": "string",
+          "default": "",
+          "title": "Vision Model Name",
+          "description": "视觉模型名称，如 MiniMax-M3、gpt-4o、gemini-2.0-flash-vision"
         }
       }
     }
