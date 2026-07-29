@@ -1,0 +1,66 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Read version
+        id: version
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $version = $tag -replace '^v', ''
+          Write-Host "Tag version: $version"
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Update package.json version
+        shell: pwsh
+        run: |
+          $pkg = Get-Content package.json -Raw | ConvertFrom-Json
+          $pkg.version = "${{ steps.version.outputs.version }}"
+          $pkg | ConvertTo-Json -Depth 10 | Set-Content package.json
+
+      - name: Build package
+        shell: pwsh
+        run: npm run build:package --if-present
+
+      - name: Create release ZIP
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          $root = Resolve-Path .
+          $zipName = "hana-desktop-orchestrator-v$version.zip"
+          $items = @(
+            "tools", "lib", "routes", "helper",
+            "docs", "scripts", "index.js",
+            "manifest.json", "package.json", "README.md", "LICENSE", "CHANGELOG.md",
+            ".gitignore"
+          ) | ForEach-Object { Join-Path $root $_ }
+          Compress-Archive -Path $items -DestinationPath $zipName -Force
+          Write-Host "Built $zipName"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: "hana-desktop-orchestrator-v${{ steps.version.outputs.version }}.zip"
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
