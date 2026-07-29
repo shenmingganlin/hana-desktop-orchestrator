@@ -43,6 +43,12 @@ class Program
                     return ListWindows(args);
                 case "dpi":
                     return DpiInfo(args);
+                case "get-window-rect":
+                    return GetWindowRect(args);
+                case "mouse-click":
+                    return MouseClick(args);
+                case "window-info":
+                    return WindowInfo(args);
                 default:
                     Console.Error.WriteLine($"Unknown verb: {verb}");
                     return 1;
@@ -235,6 +241,155 @@ class Program
     }
 
     // ═══════════════════════════════════════════════════════════════
+    //  get-window-rect  —  get a window's screen and client rect
+    // ═══════════════════════════════════════════════════════════════
+    static int GetWindowRect(string[] args)
+    {
+        if (args.Length < 2 || !long.TryParse(args[1], out long rawHandle))
+        {
+            Console.Error.WriteLine("{{\"error\":\"usage: get-window-rect <hwnd>\"}}");
+            return 1;
+        }
+        IntPtr hwnd = (IntPtr)rawHandle;
+        SetDpiAware();
+
+        Win32.GetWindowRect(hwnd, out var wr);
+        var pt = new Win32.POINT { X = 0, Y = 0 };
+        Win32.ClientToScreen(hwnd, ref pt);
+
+        var result = new
+        {
+            ok = true,
+            action = "get-window-rect",
+            handle = rawHandle,
+            window = new
+            {
+                left = wr.Left,
+                top = wr.Top,
+                right = wr.Right,
+                bottom = wr.Bottom,
+                width = wr.Right - wr.Left,
+                height = wr.Bottom - wr.Top
+            },
+            clientOrigin = new { x = pt.X, y = pt.Y }
+        };
+        Console.WriteLine(Serialize(result));
+        return 0;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  mouse-click  —  real mouse click at screen coordinates
+    // ═══════════════════════════════════════════════════════════════
+    static int MouseClick(string[] args)
+    {
+        if (args.Length < 3 ||
+            !int.TryParse(args[1], out int x) ||
+            !int.TryParse(args[2], out int y))
+        {
+            Console.Error.WriteLine("{{\"error\":\"usage: mouse-click <x> <y> [left|right|middle] [1|2]\"}}");
+            return 1;
+        }
+
+        string button = args.Length > 3 ? args[3].ToLowerInvariant() : "left";
+        int clicks = args.Length > 4 && int.TryParse(args[4], out int c) ? c : 1;
+
+        SetDpiAware();
+
+        uint downFlag, upFlag;
+        switch (button)
+        {
+            case "right":
+                downFlag = 0x08;  // MOUSEEVENTF_RIGHTDOWN
+                upFlag = 0x10;    // MOUSEEVENTF_RIGHTUP
+                break;
+            case "middle":
+                downFlag = 0x20;  // MOUSEEVENTF_MIDDLEDOWN
+                upFlag = 0x40;    // MOUSEEVENTF_MIDDLEUP
+                break;
+            default:
+                downFlag = 0x02;  // MOUSEEVENTF_LEFTDOWN
+                upFlag = 0x04;    // MOUSEEVENTF_LEFTUP
+                break;
+        }
+
+        Win32.SetCursorPos(x, y);
+        for (int i = 0; i < clicks; i++)
+        {
+            Win32.mouse_event(downFlag, 0, 0, 0, 0);
+            Win32.mouse_event(upFlag, 0, 0, 0, 0);
+        }
+
+        var result = new
+        {
+            ok = true,
+            action = "mouse-click",
+            x,
+            y,
+            button,
+            clicks
+        };
+        Console.WriteLine(Serialize(result));
+        return 0;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  window-info  —  detailed info about a window
+    // ═══════════════════════════════════════════════════════════════
+    static int WindowInfo(string[] args)
+    {
+        if (args.Length < 2 || !long.TryParse(args[1], out long rawHandle))
+        {
+            Console.Error.WriteLine("{{\"error\":\"usage: window-info <hwnd>\"}}");
+            return 1;
+        }
+        IntPtr hwnd = (IntPtr)rawHandle;
+        SetDpiAware();
+
+        var sb = new StringBuilder(1024);
+        Win32.GetWindowText(hwnd, sb, sb.Capacity);
+        string title = sb.ToString();
+
+        Win32.GetWindowRect(hwnd, out var wr);
+        Win32.GetWindowThreadProcessId(hwnd, out uint pid);
+
+        bool minimized = Win32.IsIconic(hwnd);
+        bool maximized = Win32.IsZoomed(hwnd);
+        IntPtr foreground = Win32.GetForegroundWindow();
+
+        string processName = "";
+        try
+        {
+            var proc = System.Diagnostics.Process.GetProcessById((int)pid);
+            processName = proc.ProcessName;
+        }
+        catch { }
+
+        var result = new
+        {
+            ok = true,
+            action = "window-info",
+            handle = rawHandle,
+            title,
+            processId = pid,
+            processName,
+            isForeground = hwnd == foreground,
+            isMinimized = minimized,
+            isMaximized = maximized,
+            bounds = new
+            {
+                left = wr.Left,
+                top = wr.Top,
+                right = wr.Right,
+                bottom = wr.Bottom,
+                width = wr.Right - wr.Left,
+                height = wr.Bottom - wr.Top
+            }
+        };
+        Console.WriteLine(Serialize(result));
+        return 0;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     //  Helpers
     // ═══════════════════════════════════════════════════════════════
 
@@ -307,6 +462,24 @@ internal static class Win32
     [DllImport("user32.dll")]
     public static extern bool SetProcessDPIAware();
 
+    [DllImport("user32.dll")]
+    public static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, int dwExtraInfo);
+
+    [DllImport("user32.dll")]
+    public static extern bool SetCursorPos(int X, int Y);
+
+    [DllImport("user32.dll")]
+    public static extern bool IsIconic(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    public static extern bool IsZoomed(IntPtr hWnd);
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    public static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    public static extern bool ClientToScreen(IntPtr hWnd, ref POINT point);
+
     public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
 
     [StructLayout(LayoutKind.Sequential)]
@@ -316,5 +489,11 @@ internal static class Win32
         public int Top;
         public int Right;
         public int Bottom;
+    }
+
+    public struct POINT
+    {
+        public int X;
+        public int Y;
     }
 }
