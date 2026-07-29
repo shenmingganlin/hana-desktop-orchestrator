@@ -1,7 +1,7 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { runPowerShell } from "../lib/powershell.js";
+import { runPowerShell, HANA_WIN32_DLL } from "../lib/powershell.js";
 import { DPI_SNIPPET, DPI_AWARE_SNIPPET, JSON_RESULT_PREAMBLE, WINDOW_API_SNIPPET, escapePowerShellSingleQuoted } from "../lib/windows.js";
 
 export const name = "vision-click";
@@ -107,10 +107,7 @@ $bmp = New-Object System.Drawing.Bitmap([Math]::Max(1,$w), [Math]::Max(1,$h))
 $g = [System.Drawing.Graphics]::FromImage($bmp)
 $dc = $g.GetHdc()
 
-${usePrint ? 'Add-Type @"' : '// '}using System;using System.Runtime.InteropServices;
-public class PW { [DllImport("user32.dll")]public static extern bool PrintWindow(IntPtr h,IntPtr d,int f); }
-"@
-$ok = ${usePrint ? '[PW]::PrintWindow($target, $dc, 2)' : '$g.ReleaseHdc($dc); $g.CopyFromScreen($rect.Left, $rect.Top, 0, 0, $bmp.Size); 1'}
+$ok = ${usePrint ? '[HanaPrintWindow]::PrintWindow($target, $dc, 2)' : '$g.ReleaseHdc($dc); $g.CopyFromScreen($rect.Left, $rect.Top, 0, 0, $bmp.Size); 1'}
 $g.ReleaseHdc($dc); $g.Dispose()
 if (-not $ok) { $bmp.Dispose(); Write-JsonResult @{ error = 'capture-failed' }; exit 0 }
 $bmp.Save('${screenshotPath}', [System.Drawing.Imaging.ImageFormat]::Png)

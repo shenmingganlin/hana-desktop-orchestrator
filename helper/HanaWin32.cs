@@ -150,6 +150,12 @@ public class HanaClickGuard {
     }
 }
 
+// ── PrintWindow — GPU-aware window capture ──────────────────────────────────
+public class HanaPrintWindow {
+    [DllImport("user32.dll")]
+    public static extern bool PrintWindow(IntPtr hWnd, IntPtr hdcBlt, int nFlags);
+}
+
 // ── (NEW) Reliable foreground activation — bypasses UIPI via thread input ──
 public class HanaForegroundApi {
     /// <summary>
