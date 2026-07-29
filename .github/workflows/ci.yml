@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: windows-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies (if any)
+        shell: pwsh
+        run: |
+          if (Test-Path package.json) {
+            $pkg = Get-Content package.json -Raw | ConvertFrom-Json
+            if ($pkg.dependencies -or $pkg.devDependencies) {
+              npm install --no-audit --no-fund
+            } else {
+              Write-Host "No dependencies declared — skipping npm install"
+            }
+          }
+
+      - name: Syntax check
+        shell: pwsh
+        run: npm run check:syntax --if-present
+
+      - name: Package structure check
+        shell: pwsh
+        run: npm run check:package --if-present
+
+      - name: Build package
+        shell: pwsh
+        run: npm run build:package --if-present
+
+      - name: Smoke test
+        shell: pwsh
+        run: npm run smoke:package --if-present
