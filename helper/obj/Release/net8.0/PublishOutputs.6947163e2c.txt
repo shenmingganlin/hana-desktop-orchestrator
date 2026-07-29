@@ -1,8 +1,0 @@
-C:\Users\Ganlin\.hanako\plugins\desktop-orchestrator\helper\desktop-helper.exe
-C:\Users\Ganlin\.hanako\plugins\desktop-orchestrator\helper\desktop-helper.dll
-C:\Users\Ganlin\.hanako\plugins\desktop-orchestrator\helper\desktop-helper.deps.json
-C:\Users\Ganlin\.hanako\plugins\desktop-orchestrator\helper\desktop-helper.runtimeconfig.json
-C:\Users\Ganlin\.hanako\plugins\desktop-orchestrator\helper\desktop-helper.pdb
-C:\Users\Ganlin\.hanako\plugins\desktop-orchestrator\helper\Microsoft.Win32.SystemEvents.dll
-C:\Users\Ganlin\.hanako\plugins\desktop-orchestrator\helper\System.Drawing.Common.dll
-C:\Users\Ganlin\.hanako\plugins\desktop-orchestrator\helper\runtimes\win\lib\net8.0\Microsoft.Win32.SystemEvents.dll
