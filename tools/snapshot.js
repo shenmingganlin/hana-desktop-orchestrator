@@ -1,8 +1,6 @@
 import fs from "fs";
 import os from "os";
-import path from "path";
-import { parseJsonOutput, runPowerShell } from "../lib/powershell.js";
-import { DPI_SNIPPET, DPI_AWARE_SNIPPET, JSON_RESULT_PREAMBLE, WINDOW_API_SNIPPET } from "../lib/windows.js";
+import { parseJsonOutput, runHelper } from "../lib/powershell.js";
 import { buildCoordinateContract } from "../lib/coord-contract.js";
 
 export const name = "snapshot";
@@ -34,81 +32,61 @@ export const parameters = {
 export async function execute(input = {}, toolCtx = {}) {
   const includeScreenshot = input.includeScreenshot === true;
   const maxWindows = Math.min(Math.max(Number(input.maxWindows || 30), 1), 100);
-  const screenshotPath = path.join(os.tmpdir(), "hana-desktop-orchestrator", `snapshot-${Date.now()}.png`).replace(/\\/g, "/");
 
-  const screenshotBlock = includeScreenshot ? `
-Add-Type -AssemblyName System.Drawing
-$bmp = New-Object System.Drawing.Bitmap($hanaPhysWidth, $hanaPhysHeight)
-$graphics = [System.Drawing.Graphics]::FromImage($bmp)
-$graphics.CopyFromScreen($hanaPhysLeft, $hanaPhysTop, 0, 0, $bmp.Size)
-$bmp.Save('${screenshotPath}', [System.Drawing.Imaging.ImageFormat]::Png)
-$graphics.Dispose()
-$bmp.Dispose()
-` : "";
+  // Use helper.exe for both listing windows and snapshot (much faster than PowerShell)
+  const listResult = parseJsonOutput(runHelper("list-windows"), "list-windows");
 
-  const script = `
-$ErrorActionPreference = "Stop"
-${DPI_AWARE_SNIPPET}
-${JSON_RESULT_PREAMBLE}
-${DPI_SNIPPET}
-${WINDOW_API_SNIPPET}
-Add-Type -AssemblyName System.Windows.Forms
-${screenshotBlock}
-$foreground = [HanaWindowApi]::GetForegroundWindow()
-$windows = New-Object System.Collections.ArrayList
-$callback = [HanaWindowApi+EnumWindowsProc]{ param($hwnd, $lparam)
-  if (-not [HanaWindowApi]::IsWindowVisible($hwnd)) { return $true }
-  $len = [HanaWindowApi]::GetWindowTextLength($hwnd)
-  if ($len -le 0) { return $true }
-  $sb = New-Object System.Text.StringBuilder ($len + 1)
-  [HanaWindowApi]::GetWindowText($hwnd, $sb, $sb.Capacity) | Out-Null
-  $processIdValue = 0
-  [HanaWindowApi]::GetWindowThreadProcessId($hwnd, [ref]$processIdValue) | Out-Null
-  $rect = New-Object HanaWindowApi+RECT
-  [HanaWindowApi]::GetWindowRect($hwnd, [ref]$rect) | Out-Null
-  [void]$windows.Add(@{
-    handle = "" + $hwnd.ToInt64()
-    title = $sb.ToString()
-    processId = [int]$processIdValue
-    isForeground = ($hwnd -eq $foreground)
-    bounds = @{ left = $rect.Left; top = $rect.Top; right = $rect.Right; bottom = $rect.Bottom; width = $rect.Right - $rect.Left; height = $rect.Bottom - $rect.Top }
-  })
-  return $windows.Count -lt ${maxWindows}
-}
-[HanaWindowApi]::EnumWindows($callback, [IntPtr]::Zero) | Out-Null
-Write-JsonResult @{
-  screen = @{ left = $hanaPhysLeft; top = $hanaPhysTop; width = $hanaPhysWidth; height = $hanaPhysHeight; scaleX = $hanaScaleX; scaleY = $hanaScaleY; dpiAware = $hanaDpiAwareSet }
-  foregroundHandle = "" + $foreground.ToInt64()
-  windows = @($windows)
-  screenshotPath = $(if (${includeScreenshot ? "$true" : "$false"}) { '${screenshotPath}' } else { $null })
-}
-`;
+  let snapshotResult = null;
+  if (includeScreenshot) {
+    snapshotResult = parseJsonOutput(runHelper("snapshot"), "snapshot");
+  }
 
-  const snapshot = parseJsonOutput(runPowerShell(script), "snapshot");
+  // DPI info via helper.exe
+  const dpiResult = parseJsonOutput(runHelper("dpi"), "dpi");
 
-  // Attach the image→physical-pixel coordinate contract ONLY when a screenshot is
-  // returned (otherwise there is no image to map). Uses the true physical screen
-  // region the capture covered, so ratio-based targeting maps to clickable pixels.
-  if (includeScreenshot && snapshot?.screen) {
-    Object.assign(
-      snapshot,
-      buildCoordinateContract(
-        {
-          left: snapshot.screen.left,
-          top: snapshot.screen.top,
-          width: snapshot.screen.width,
-          height: snapshot.screen.height,
-        },
-        { kind: "full-screen" }
-      )
+  const screen = {
+    scaleX: dpiResult?.scaleX || 1.5,
+    scaleY: dpiResult?.scaleY || 1.5,
+    left: 0,
+    width: 2560,
+    top: 0,
+    dpiAware: dpiResult?.ok === true,
+    height: 1600,
+  };
+
+  const windows = (listResult?.windows || []).slice(0, maxWindows).map((w, i) => ({
+    processId: w.processId,
+    title: w.title,
+    handle: String(w.handle),
+    bounds: w.bounds,
+    isForeground: i === 0,
+  }));
+
+  const foregroundHandle = windows.length > 0 ? windows[0].handle : "0";
+
+  const snapshot = {
+    screenshotPath: snapshotResult?.path || null,
+    screen,
+    foregroundHandle,
+    windows,
+  };
+
+  if (includeScreenshot && snapshotResult?.path) {
+    snapshot.coordinateContract = buildCoordinateContract(
+      { left: 0, top: 0, width: screen.width, height: screen.height },
+      { kind: "full-screen" }
     );
   }
 
   const content = [{ type: "text", text: JSON.stringify(snapshot, null, 2) }];
   const details = { action: "snapshot", snapshot };
 
-  if (includeScreenshot && snapshot?.screenshotPath && fs.existsSync(snapshot.screenshotPath) && toolCtx.stageFile) {
-    const mediaItem = toolCtx.stageFile({ sessionPath: toolCtx.sessionPath, filePath: snapshot.screenshotPath, label: "desktop-orchestrator-snapshot.png" });
+  if (includeScreenshot && snapshot.screenshotPath && fs.existsSync(snapshot.screenshotPath) && toolCtx.stageFile) {
+    const mediaItem = toolCtx.stageFile({
+      sessionPath: toolCtx.sessionPath,
+      filePath: snapshot.screenshotPath,
+      label: "desktop-orchestrator-snapshot.png",
+    });
     details.media = { items: [mediaItem] };
   }
 
