@@ -3,7 +3,7 @@ import { saveApprovalBundle } from "../lib/approval-store.js";
 import { compareElementSignature } from "../lib/element-signature.js";
 import { parseJsonOutput, runUiaHelper } from "../lib/powershell.js";
 import { buildActionPlan, requireRealInputApproval, resolvePluginConfig, REAL_INPUT_CONFIRMATION } from "../lib/safety.js";
-import { findSnapshotElement, loadSnapshot } from "../lib/snapshot-store.js";
+import { findSnapshotElement, loadSnapshot, saveSnapshot } from "../lib/snapshot-store.js";
 import { buildVerificationRequest } from "../lib/verification.js";
 import { escapePowerShellSingleQuoted, JSON_RESULT_PREAMBLE, WINDOW_API_SNIPPET } from "../lib/windows.js";
 
@@ -282,6 +282,10 @@ try {
   if (approval.allowed && signatureVerified && canSetValue) {
     const targetKey = storedElement?.name || storedElement?.automationId || String(targetIndex);
     setResult = parseJsonOutput(runUiaHelper("uia-type", [effectiveHandle, targetKey, input.text]), "type-element");
+    // Auto-extend lease TTL on successful write (10 more minutes)
+    if (setResult?.ok && storedSnapshot) {
+      try { saveSnapshot(storedSnapshot); } catch { /* best-effort TTL extension */ }
+    }
   }
 
   const plan = buildActionPlan({

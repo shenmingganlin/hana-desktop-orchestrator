@@ -5,7 +5,7 @@ import { getCursorOverlayClient } from "../lib/cursor-overlay-client.js";
 import { compareElementSignature } from "../lib/element-signature.js";
 import { parseJsonOutput, runUiaHelper } from "../lib/powershell.js";
 import { buildActionPlan, requireRealInputApproval, resolvePluginConfig, REAL_INPUT_CONFIRMATION } from "../lib/safety.js";
-import { findSnapshotElement, loadSnapshot } from "../lib/snapshot-store.js";
+import { findSnapshotElement, loadSnapshot, saveSnapshot } from "../lib/snapshot-store.js";
 import { buildVerificationRequest } from "../lib/verification.js";
 import { escapePowerShellSingleQuoted, JSON_RESULT_PREAMBLE, WINDOW_API_SNIPPET } from "../lib/windows.js";
 
@@ -300,6 +300,10 @@ try {
     } else if (storedElement?.name || targetIndex != null) {
       const targetName = storedElement?.name || String(targetIndex);
       invokeResult = parseJsonOutput(runUiaHelper("uia-click", [effectiveHandle, targetName]), "click-element");
+    }
+    // Auto-extend lease TTL on successful invoke (10 more minutes)
+    if (invokeResult?.ok && storedSnapshot) {
+      try { saveSnapshot(storedSnapshot); } catch { /* best-effort TTL extension */ }
     }
   }
 
