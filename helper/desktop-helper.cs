@@ -45,9 +45,15 @@ class Program
                     return ListWindows(args);
                 case "dpi":
                     return DpiInfo(args);
+                case "snapshot-window":
+                    return SnapshotWindow(args);
                 case "get-window-rect":
                     return GetWindowRect(args);
                 case "mouse-click":
+                case "mouse-drag":
+                    return MouseDrag(args);
+                case "mouse-wheel":
+                    return MouseWheel(args);
                     return MouseClick(args);
                 case "window-info":
                     return WindowInfo(args);
@@ -171,10 +177,21 @@ class Program
 
     // ═══════════════════════════════════════════════════════════════
     //  snapshot-full  —  capture screenshot + list windows + dpi in one call
+    //  Args: [--format png|jpeg]  (default png)
     // ═══════════════════════════════════════════════════════════════
     static int SnapshotFull(string[] args)
     {
         SetDpiAware();
+
+        string format = "png";
+        for (int i = 1; i < args.Length; i++)
+        {
+            if (args[i] == "--format" && i + 1 < args.Length)
+            {
+                format = args[i + 1].ToLowerInvariant();
+                i++;
+            }
+        }
 
         // ── 1. DPI info ──
         IntPtr hdc = Win32.GetDC(IntPtr.Zero);
@@ -192,13 +209,30 @@ class Program
 
         string tempDir = Path.Combine(Path.GetTempPath(), "hana-desktop-orchestrator");
         Directory.CreateDirectory(tempDir);
-        string snapshotPath = Path.Combine(tempDir, $"snapshot-{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}.png");
+        long ts = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        string ext = format == "jpeg" ? "jpg" : "png";
+        string snapshotPath = Path.Combine(tempDir, $"snapshot-{ts}.{ext}");
 
         using (var bmp = new Bitmap(Math.Max(1, screenWidth), Math.Max(1, screenHeight)))
         using (var g = Graphics.FromImage(bmp))
         {
             g.CopyFromScreen(screenLeft, screenTop, 0, 0, bmp.Size);
-            bmp.Save(snapshotPath, ImageFormat.Png);
+            if (format == "jpeg")
+            {
+                var encoder = ImageCodecInfo.GetImageEncoders().FirstOrDefault(c => c.FormatID == ImageFormat.Jpeg.Guid);
+                if (encoder != null)
+                {
+                    var encParams = new EncoderParameters(1);
+                    encParams.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, 85L);
+                    bmp.Save(snapshotPath, encoder, encParams);
+                }
+                else
+                    bmp.Save(snapshotPath, ImageFormat.Jpeg);
+            }
+            else
+            {
+                bmp.Save(snapshotPath, ImageFormat.Png);
+            }
         }
 
         var fileInfo = new FileInfo(snapshotPath);
@@ -252,7 +286,7 @@ class Program
                 width = screenWidth,
                 height = screenHeight,
                 size = fileInfo.Length,
-                format = "png"
+                format
             },
             screen = new
             {
@@ -268,6 +302,104 @@ class Program
             foregroundHandle = foregroundHwnd.ToInt64(),
             windowCount = windows.Count,
             windows
+        };
+        Console.WriteLine(Serialize(result));
+        return 0;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  snapshot-window  —  capture a specific window
+    //  Args: <hwnd> [--format png|jpeg]
+    // ═══════════════════════════════════════════════════════════════
+    static int SnapshotWindow(string[] args)
+    {
+        if (args.Length < 2 || !long.TryParse(args[1], out long rawHandle))
+        {
+            Console.Error.WriteLine("{{\"error\":\"usage: snapshot-window <hwnd> [--format png|jpeg]\"}}");
+            return 1;
+        }
+        IntPtr hwnd = (IntPtr)rawHandle;
+
+        string format = "png";
+        for (int i = 2; i < args.Length; i++)
+        {
+            if (args[i] == "--format" && i + 1 < args.Length)
+            {
+                format = args[i + 1].ToLowerInvariant();
+                i++;
+            }
+        }
+
+        SetDpiAware();
+        Win32.GetWindowRect(hwnd, out var wr);
+        int w = wr.Right - wr.Left;
+        int h = wr.Bottom - wr.Top;
+        if (w <= 0 || h <= 0)
+        {
+            Console.Error.WriteLine("{{\"error\":\"invalid window bounds\"}}");
+            return 1;
+        }
+
+        string tempDir = Path.Combine(Path.GetTempPath(), "hana-desktop-orchestrator");
+        Directory.CreateDirectory(tempDir);
+        long ts = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        string ext = format == "jpeg" ? "jpg" : "png";
+        string path = Path.Combine(tempDir, $"snapshot-{ts}.{ext}");
+
+        string captureMode = "copyfromscreen";
+        using (var bmp = new Bitmap(Math.Max(1, w), Math.Max(1, h)))
+        {
+            // Try PrintWindow first, fallback to CopyFromScreen
+            bool printedOk = false;
+            try
+            {
+                using (var g = Graphics.FromImage(bmp))
+                {
+                    IntPtr hdc = g.GetHdc();
+                    printedOk = Win32.PrintWindow(hwnd, hdc, 0);
+                    g.ReleaseHdc(hdc);
+                }
+            }
+            catch { }
+
+            if (printedOk)
+            {
+                captureMode = "printwindow";
+            }
+            else
+            {
+                using (var g = Graphics.FromImage(bmp))
+                    g.CopyFromScreen(wr.Left, wr.Top, 0, 0, bmp.Size);
+            }
+
+            if (format == "jpeg")
+            {
+                var encoder = ImageCodecInfo.GetImageEncoders().FirstOrDefault(c => c.FormatID == ImageFormat.Jpeg.Guid);
+                if (encoder != null)
+                {
+                    var encParams = new EncoderParameters(1);
+                    encParams.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, 85L);
+                    bmp.Save(path, encoder, encParams);
+                }
+                else
+                    bmp.Save(path, ImageFormat.Jpeg);
+            }
+            else
+                bmp.Save(path, ImageFormat.Png);
+        }
+
+        var fi = new FileInfo(path);
+        var result = new
+        {
+            ok = true,
+            action = "snapshot-window",
+            handle = rawHandle,
+            path = path.Replace("\\", "/"),
+            width = w,
+            height = h,
+            size = fi.Length,
+            format,
+            mode = captureMode
         };
         Console.WriteLine(Serialize(result));
         return 0;
@@ -437,6 +569,103 @@ class Program
             y,
             button,
             clicks
+        };
+        Console.WriteLine(Serialize(result));
+        return 0;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  mouse-drag  —  press down at (fromX,fromY), move to (toX,toY), release
+    //  Args: <fromX> <fromY> <toX> <toY> [button=left]
+    // ═══════════════════════════════════════════════════════════════
+    static int MouseDrag(string[] args)
+    {
+        if (args.Length < 5)
+        {
+            Console.Error.WriteLine("{{\"error\":\"usage: mouse-drag <fromX> <fromY> <toX> <toY> [button]\"}}");
+            return 1;
+        }
+
+        int fromX = int.Parse(args[1]);
+        int fromY = int.Parse(args[2]);
+        int toX = int.Parse(args[3]);
+        int toY = int.Parse(args[4]);
+        string button = args.Length > 5 ? args[5].ToLowerInvariant() : "left";
+
+        uint downFlag, upFlag;
+        if (button == "right")
+        {
+            downFlag = 0x08; upFlag = 0x10;
+        }
+        else
+        {
+            downFlag = 0x02; upFlag = 0x04;
+        }
+
+        // Move to start, press, move to end in steps, release
+        Win32.SetCursorPos(fromX, fromY);
+        System.Threading.Thread.Sleep(30);
+        Win32.mouse_event(downFlag, 0, 0, 0, 0);
+        System.Threading.Thread.Sleep(20);
+
+        // Smooth drag in ~10px steps
+        int steps = Math.Max(1, (int)Math.Sqrt(Math.Pow(toX - fromX, 2) + Math.Pow(toY - fromY, 2)) / 10);
+        for (int i = 1; i <= steps; i++)
+        {
+            int cx = fromX + (toX - fromX) * i / steps;
+            int cy = fromY + (toY - fromY) * i / steps;
+            Win32.SetCursorPos(cx, cy);
+            System.Threading.Thread.Sleep(5);
+        }
+
+        Win32.SetCursorPos(toX, toY);
+        System.Threading.Thread.Sleep(15);
+        Win32.mouse_event(upFlag, 0, 0, 0, 0);
+
+        var result = new
+        {
+            ok = true,
+            action = "mouse-drag",
+            from = new { x = fromX, y = fromY },
+            to = new { x = toX, y = toY },
+            button,
+            steps
+        };
+        Console.WriteLine(Serialize(result));
+        return 0;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  mouse-wheel  —  scroll at (x,y)
+    //  Args: <x> <y> <notches> [axis=vertical]
+    // ═══════════════════════════════════════════════════════════════
+    static int MouseWheel(string[] args)
+    {
+        if (args.Length < 4)
+        {
+            Console.Error.WriteLine("{{\"error\":\"usage: mouse-wheel <x> <y> <notches> [axis]\"}}");
+            return 1;
+        }
+
+        int x = int.Parse(args[1]);
+        int y = int.Parse(args[2]);
+        int notches = int.Parse(args[3]);
+        string axis = args.Length > 4 ? args[4].ToLowerInvariant() : "vertical";
+
+        Win32.SetCursorPos(x, y);
+        System.Threading.Thread.Sleep(20);
+
+        uint wheelFlags = axis == "horizontal" ? 0x1000u : 0x0800u;
+        Win32.mouse_event(wheelFlags, 0, 0, (uint)(notches * 120), 0);
+
+        var result = new
+        {
+            ok = true,
+            action = "mouse-wheel",
+            x,
+            y,
+            notches,
+            axis
         };
         Console.WriteLine(Serialize(result));
         return 0;
