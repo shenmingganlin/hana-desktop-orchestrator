@@ -141,11 +141,16 @@ export async function execute(input = {}, ctx = {}) {
   };
 
   const prompt = `这张图片的尺寸是 ${imgWidth}×${imgHeight} 像素。
-请在这张截图中找到「${target}」，并${
+
+请仔细查看图片，用户的问题是：「${target}」
+
+如果问题是关于位置的，请${
     formatInstructions[returnFormat] || formatInstructions.center
   }
 坐标值必须是精确的像素值，范围在图片尺寸内。
-如果找不到该元素，返回 null。`;
+如果找不到该元素，返回 null。
+
+如果问题不是关于坐标位置的（比如问编号、名称、颜色等选择/分类问题），请直接按用户要求回答，不要输出坐标。`;
 
   // 调用视觉模型 API（支持 OpenAI 和 Anthropic 两种格式）
   const baseUrl = apiBase.replace(/\/+$/, "");
@@ -255,9 +260,14 @@ export async function execute(input = {}, ctx = {}) {
   try {
     parsed = JSON.parse(resultText);
   } catch {
-    const centerMatch = resultText.match(/\[?\s*(\d+)\s*,\s*(\d+)\s*\]?/);
-    if (centerMatch) {
-      parsed = { x: parseInt(centerMatch[1]), y: parseInt(centerMatch[2]) };
+    // 不要贪心匹配 "2, xxx" 里的 2 作为坐标 - 只匹配明确的 [x, y] 格式
+    const coordMatch = resultText.match(/^\s*[\[\(]\s*(\d+)\s*,\s*(\d+)\s*[\]\)]\s*$/);
+    if (coordMatch) {
+      parsed = { x: parseInt(coordMatch[1]), y: parseInt(coordMatch[2]) };
+    }
+    // 如果解析不了（不是合法JSON也不是坐标格式），保留原始字符串作为自由文本答案
+    if (!parsed) {
+      parsed = { text: resultText };
     }
   }
 
