@@ -1,0 +1,51 @@
+{
+  "manifestVersion": 1,
+  "id": "desktop-orchestrator",
+  "name": "Desktop Orchestrator",
+  "version": "0.1.0",
+  "description": "A powerful but guarded Windows desktop control platform for HanaAgent. Provides desktop snapshots, window targeting, action planning, and protected input execution.",
+  "author": {
+    "name": "Ganlin & ChatGPT"
+  },
+  "license": "MIT",
+  "minAppVersion": "0.170.0",
+  "trust": "full-access",
+  "categories": ["automation", "desktop", "windows"],
+  "keywords": ["desktop", "computer-use", "windows", "uia", "automation", "screen-control"],
+  "ui": {
+    "hostCapabilities": []
+  },
+  "contributes": {
+    "widget": {
+      "title": {
+        "zh": "桌面审批",
+        "en": "Desktop Approval"
+      },
+      "route": "/widget",
+      "icon": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"3\" y=\"4\" width=\"18\" height=\"14\" rx=\"3\"/><path d=\"M8 20h8\"/><path d=\"M12 18v2\"/><path d=\"M8 10l2.5 2.5L16 7\"/></svg>"
+    },
+    "configuration": {
+      "properties": {
+        "allowRealInput": {
+          "type": "boolean",
+          "default": false,
+          "title": "Allow real mouse and keyboard input",
+          "description": "When disabled, input tools return dry-run plans instead of injecting real desktop input. Keep disabled during development."
+        },
+        "defaultSnapshotFormat": {
+          "type": "string",
+          "default": "png",
+          "enum": ["png", "jpeg"],
+          "title": "Default snapshot image format"
+        },
+        "maxWindowResults": {
+          "type": "integer",
+          "default": 40,
+          "minimum": 1,
+          "maximum": 200,
+          "title": "Maximum windows returned in snapshots"
+        }
+      }
+    }
+  }
+}
