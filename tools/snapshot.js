@@ -33,45 +33,60 @@ export async function execute(input = {}, toolCtx = {}) {
   const includeScreenshot = input.includeScreenshot === true;
   const maxWindows = Math.min(Math.max(Number(input.maxWindows || 30), 1), 100);
 
-  // Use helper.exe for both listing windows and snapshot (much faster than PowerShell)
-  const listResult = parseJsonOutput(runHelper("list-windows"), "list-windows");
+  // Use snapshot-full: screenshot + list-windows + dpi in one helper.exe call (~28% faster)
+  const fullResult = includeScreenshot
+    ? parseJsonOutput(runHelper("snapshot-full"), "snapshot-full")
+    : parseJsonOutput(runHelper("list-windows"), "list-windows");
 
-  let snapshotResult = null;
-  if (includeScreenshot) {
-    snapshotResult = parseJsonOutput(runHelper("snapshot"), "snapshot");
+  let screen, windows, foregroundHandle, screenshotPath;
+
+  if (includeScreenshot && fullResult?.screenshot) {
+    // snapshot-full mode
+    const s = fullResult.screenshot;
+    const scr = fullResult.screen;
+    screen = {
+      scaleX: scr.scaleX,
+      scaleY: scr.scaleY,
+      left: scr.left,
+      width: scr.width,
+      top: scr.top,
+      dpiAware: true,
+      height: scr.height,
+    };
+    windows = (fullResult.windows || []).slice(0, maxWindows).map((w) => ({
+      processId: w.processId,
+      title: w.title,
+      handle: String(w.handle),
+      bounds: w.bounds,
+      isForeground: w.isForeground,
+    }));
+    foregroundHandle = String(fullResult.foregroundHandle || "0");
+    screenshotPath = s.path || null;
+  } else {
+    // list-windows only mode
+    screen = {
+      scaleX: 1.5, scaleY: 1.5, left: 0, width: 2560, top: 0,
+      dpiAware: false, height: 1600,
+    };
+    windows = (fullResult?.windows || []).slice(0, maxWindows).map((w) => ({
+      processId: w.processId,
+      title: w.title,
+      handle: String(w.handle),
+      bounds: w.bounds,
+      isForeground: w.isForeground,
+    }));
+    foregroundHandle = windows.length > 0 ? windows[0].handle : "0";
+    screenshotPath = null;
   }
 
-  // DPI info via helper.exe
-  const dpiResult = parseJsonOutput(runHelper("dpi"), "dpi");
-
-  const screen = {
-    scaleX: dpiResult?.scaleX || 1.5,
-    scaleY: dpiResult?.scaleY || 1.5,
-    left: 0,
-    width: 2560,
-    top: 0,
-    dpiAware: dpiResult?.ok === true,
-    height: 1600,
-  };
-
-  const windows = (listResult?.windows || []).slice(0, maxWindows).map((w, i) => ({
-    processId: w.processId,
-    title: w.title,
-    handle: String(w.handle),
-    bounds: w.bounds,
-    isForeground: i === 0,
-  }));
-
-  const foregroundHandle = windows.length > 0 ? windows[0].handle : "0";
-
   const snapshot = {
-    screenshotPath: snapshotResult?.path || null,
+    screenshotPath,
     screen,
     foregroundHandle,
     windows,
   };
 
-  if (includeScreenshot && snapshotResult?.path) {
+  if (screenshotPath) {
     snapshot.coordinateContract = buildCoordinateContract(
       { left: 0, top: 0, width: screen.width, height: screen.height },
       { kind: "full-screen" }

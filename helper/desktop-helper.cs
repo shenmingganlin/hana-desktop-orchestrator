@@ -39,6 +39,8 @@ class Program
             {
                 case "snapshot":
                     return Snapshot(args);
+                case "snapshot-full":
+                    return SnapshotFull(args);
                 case "list-windows":
                     return ListWindows(args);
                 case "dpi":
@@ -162,6 +164,110 @@ class Program
             width = w,
             height = h,
             size = fi.Length
+        };
+        Console.WriteLine(Serialize(result));
+        return 0;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  snapshot-full  —  capture screenshot + list windows + dpi in one call
+    // ═══════════════════════════════════════════════════════════════
+    static int SnapshotFull(string[] args)
+    {
+        SetDpiAware();
+
+        // ── 1. DPI info ──
+        IntPtr hdc = Win32.GetDC(IntPtr.Zero);
+        int dpiX = Win32.GetDeviceCaps(hdc, 88);
+        int dpiY = Win32.GetDeviceCaps(hdc, 90);
+        Win32.ReleaseDC(IntPtr.Zero, hdc);
+        double scaleX = Math.Round(dpiX / 96.0, 4);
+        double scaleY = Math.Round(dpiY / 96.0, 4);
+
+        // ── 2. Fullscreen screenshot ──
+        int screenLeft = Win32.GetSystemMetrics(76);
+        int screenTop = Win32.GetSystemMetrics(77);
+        int screenWidth = Win32.GetSystemMetrics(78);
+        int screenHeight = Win32.GetSystemMetrics(79);
+
+        string tempDir = Path.Combine(Path.GetTempPath(), "hana-desktop-orchestrator");
+        Directory.CreateDirectory(tempDir);
+        string snapshotPath = Path.Combine(tempDir, $"snapshot-{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}.png");
+
+        using (var bmp = new Bitmap(Math.Max(1, screenWidth), Math.Max(1, screenHeight)))
+        using (var g = Graphics.FromImage(bmp))
+        {
+            g.CopyFromScreen(screenLeft, screenTop, 0, 0, bmp.Size);
+            bmp.Save(snapshotPath, ImageFormat.Png);
+        }
+
+        var fileInfo = new FileInfo(snapshotPath);
+
+        // ── 3. List windows ──
+        var windows = new List<object>();
+        IntPtr foregroundHwnd = Win32.GetForegroundWindow();
+
+        var enumCallback = new Win32.EnumWindowsProc((IntPtr hwnd, IntPtr lparam) =>
+        {
+            if (!Win32.IsWindowVisible(hwnd)) return true;
+            int len = Win32.GetWindowTextLength(hwnd);
+            if (len == 0) return true;
+            var sb = new StringBuilder(len + 1);
+            Win32.GetWindowText(hwnd, sb, sb.Capacity);
+            string title = sb.ToString();
+            if (string.IsNullOrWhiteSpace(title)) return true;
+
+            Win32.GetWindowThreadProcessId(hwnd, out uint pid);
+            Win32.GetWindowRect(hwnd, out var wr);
+
+            windows.Add(new
+            {
+                processId = (int)pid,
+                title,
+                handle = hwnd.ToInt64(),
+                isForeground = hwnd == foregroundHwnd,
+                bounds = new
+                {
+                    left = wr.Left,
+                    top = wr.Top,
+                    right = wr.Right,
+                    bottom = wr.Bottom,
+                    width = wr.Right - wr.Left,
+                    height = wr.Bottom - wr.Top
+                }
+            });
+            return true;
+        });
+
+        Win32.EnumWindows(enumCallback, IntPtr.Zero);
+
+        // ── 4. Build result ──
+        var result = new
+        {
+            ok = true,
+            action = "snapshot-full",
+            screenshot = new
+            {
+                path = snapshotPath.Replace("\\", "/"),
+                width = screenWidth,
+                height = screenHeight,
+                size = fileInfo.Length,
+                format = "png"
+            },
+            screen = new
+            {
+                left = screenLeft,
+                top = screenTop,
+                width = screenWidth,
+                height = screenHeight,
+                scaleX,
+                scaleY,
+                dpiX,
+                dpiY
+            },
+            foregroundHandle = foregroundHwnd.ToInt64(),
+            windowCount = windows.Count,
+            windows
         };
         Console.WriteLine(Serialize(result));
         return 0;
