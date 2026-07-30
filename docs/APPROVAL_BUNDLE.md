@@ -31,7 +31,7 @@ These requests are not executed automatically.
 
 ## Compatibility
 
-Bundles and tokens from protocol `version: 1` may still be loaded for display, but they are not executable approval evidence. The token store accepts only the current token version and requires `approvalBundleHash`; preflight also requires the current bundle version, a present and self-consistent `bundleHash`, and a matching token digest. The correct migration is to generate a fresh version 2 bundle and token.
+Bundles and tokens from protocol `version: 1` may still be loaded for display, but they are not executable approval evidence. The token store accepts only the current token version and requires `approvalBundleHash`; preflight also requires the current bundle version, a present and self-consistent `bundleHash`, and a matching token digest. The correct migration is to generate a fresh version 2 bundle and token. The approval store applies the same write-time validation: unsupported versions, missing hashes, and content/hash mismatches are rejected before a record is written.
 
 ## Safety
 
