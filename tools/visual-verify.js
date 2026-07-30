@@ -1,6 +1,6 @@
 import { parseJsonOutput, runPowerShell } from "../lib/powershell.js";
 import { findSnapshotElement, loadSnapshot } from "../lib/snapshot-store.js";
-import { JSON_RESULT_PREAMBLE } from "../lib/windows.js";
+import { DPI_AWARE_SNIPPET, JSON_RESULT_PREAMBLE } from "../lib/windows.js";
 
 export const name = "visual-verify";
 export const description = "对 lease 绑定元素区域做截图采样，生成视觉签名并可与期望签名计算差异。只观察，不执行任何桌面动作。";
@@ -61,24 +61,10 @@ function computeDiffScore(actualCells, expectedCells) {
 function buildCaptureScript({ left, top, width, height, gridSize }) {
   return `
 $ErrorActionPreference = "Stop"
+${DPI_AWARE_SNIPPET}
 ${JSON_RESULT_PREAMBLE}
 Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName System.Windows.Forms
-Add-Type @"
-using System;
-using System.Runtime.InteropServices;
-public static class HanaDpiAwareness {
-  [DllImport("Shcore.dll")]
-  public static extern int SetProcessDpiAwareness(int value);
-  [DllImport("user32.dll")]
-  public static extern bool SetProcessDPIAware();
-  public static void Enable() {
-    try { SetProcessDpiAwareness(2); } catch {}
-    try { SetProcessDPIAware(); } catch {}
-  }
-}
-"@
-[HanaDpiAwareness]::Enable()
 
 $screenBounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
 $left = [Math]::Max($screenBounds.Left, [int]${left})

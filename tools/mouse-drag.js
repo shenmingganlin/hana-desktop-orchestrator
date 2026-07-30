@@ -15,7 +15,7 @@ import { buildCursorOverlay } from "../lib/cursor-overlay.js";
 import { getCursorOverlayClient } from "../lib/cursor-overlay-client.js";
 import { mouseDrag } from "../lib/mouse-inject.js";
 import { evaluateClickSafety } from "../lib/click-guard.js";
-import { requireRealInputApproval, resolvePluginConfig, buildActionPlan, REAL_INPUT_CONFIRMATION, clampInteger } from "../lib/safety.js";
+import { requireRealInputApproval, resolvePluginConfig, buildActionPlan, isRealActionBlocked, REAL_INPUT_CONFIRMATION, clampInteger } from "../lib/safety.js";
 
 export const name = "mouse-drag";
 export const description =
@@ -171,7 +171,7 @@ export async function execute(input = {}, toolCtx = {}) {
 
   return JSON.stringify({
     dryRun: !approval.allowed,
-    blocked: approval.allowed && !actionAllowed,
+    blocked: isRealActionBlocked({ approvalAllowed: approval.allowed, actionAllowed }),
     blockedBy,
     approval,
     path: { fromX, fromY, toX, toY, button },

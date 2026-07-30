@@ -3,7 +3,7 @@ import os from "os";
 import path from "path";
 import { parseJsonOutput, runPowerShell } from "../lib/powershell.js";
 import { findSnapshotElement, loadSnapshot } from "../lib/snapshot-store.js";
-import { JSON_RESULT_PREAMBLE } from "../lib/windows.js";
+import { DPI_AWARE_SNIPPET, JSON_RESULT_PREAMBLE } from "../lib/windows.js";
 import { buildCoordinateContract } from "../lib/coord-contract.js";
 
 export const name = "region-preview";
@@ -33,24 +33,10 @@ function escapePowerShellSingleQuoted(value) {
 function buildCaptureScript({ left, top, width, height, outputPath }) {
   return `
 $ErrorActionPreference = "Stop"
+${DPI_AWARE_SNIPPET}
 ${JSON_RESULT_PREAMBLE}
 Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName System.Windows.Forms
-Add-Type @"
-using System;
-using System.Runtime.InteropServices;
-public static class HanaDpiAwareness {
-  [DllImport("Shcore.dll")]
-  public static extern int SetProcessDpiAwareness(int value);
-  [DllImport("user32.dll")]
-  public static extern bool SetProcessDPIAware();
-  public static void Enable() {
-    try { SetProcessDpiAwareness(2); } catch {}
-    try { SetProcessDPIAware(); } catch {}
-  }
-}
-"@
-[HanaDpiAwareness]::Enable()
 
 $screenBounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
 $left = [Math]::Max($screenBounds.Left, [int]${left})

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.5 - 2026-07-30
+
+### Fixed
+
+- Raw mouse tools now report `blocked: true` whenever approval is denied, and click-guard process metadata uses the actual target process instead of PowerShell's built-in `$PID` value.
+- `region-preview` and `visual-verify` now use the precompiled DPI-awareness API instead of an inline PowerShell C# type that the script runner strips before execution.
+
 ## 0.2.4 - 2026-07-30
 
 ### Fixed

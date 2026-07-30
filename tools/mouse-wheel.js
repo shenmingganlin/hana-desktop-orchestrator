@@ -22,6 +22,7 @@ import {
   requireRealInputApproval,
   resolvePluginConfig,
   buildActionPlan,
+  isRealActionBlocked,
   REAL_INPUT_CONFIRMATION,
   clampInteger,
 } from "../lib/safety.js";
@@ -184,7 +185,7 @@ export async function execute(input = {}, toolCtx = {}) {
 
   return JSON.stringify({
     dryRun: !approval.allowed,
-    blocked: approval.allowed && !actionAllowed,
+    blocked: isRealActionBlocked({ approvalAllowed: approval.allowed, actionAllowed }),
     blockedBy,
     approval,
     target: { x, y, notches, axis },
