@@ -1,0 +1,6 @@
+dist/
+helper/bin/
+helper/obj/
+*.log
+*.bak
+*.tmp

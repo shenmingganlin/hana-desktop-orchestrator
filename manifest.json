@@ -1,0 +1,84 @@
+{
+  "manifestVersion": 1,
+  "id": "desktop-orchestrator",
+  "name": "Desktop Orchestrator",
+  "version": "0.2.3",
+  "description": "A powerful but guarded Windows desktop control platform for HanaAgent. Provides desktop snapshots, window targeting, action planning, and protected input execution.",
+  "author": {
+    "name": "Ganlin & ChatGPT"
+  },
+  "license": "MIT",
+  "minAppVersion": "0.170.0",
+  "trust": "full-access",
+  "categories": ["automation", "desktop", "windows"],
+  "keywords": ["desktop", "computer-use", "windows", "uia", "automation", "screen-control"],
+  "ui": {
+    "hostCapabilities": []
+  },
+  "contributes": {
+    "widget": {
+      "route": "/widget"
+    },
+    "configuration": {
+      "properties": {
+        "visionApiBase": {
+          "type": "string",
+          "default": "",
+          "title": "视觉模型 API 地址",
+          "description": "视觉定位/点击使用的模型 API 基地址。支持 OpenAI 兼容格式（/v1/chat/completions）或 Anthropic 兼容格式（/messages）。使用 MiniMax M3 时填 https://api.minimaxi.com/anthropic，使用其他模型时填对应供应商地址。"
+        },
+        "visionApiKey": {
+          "type": "string",
+          "default": "",
+          "title": "视觉模型 API 密钥",
+          "description": "视觉模型供应商的 API Key。对应 visionApiBase 的鉴权凭证。"
+        },
+        "visionModel": {
+          "type": "string",
+          "default": "",
+          "title": "视觉模型名称",
+          "description": "模型标识符，如 MiniMax-M3、gpt-4o、gemini-2.0-flash-vision。需要与 apiBase 兼容。"
+        },
+        "allowRealInput": {
+          "type": "boolean",
+          "default": false,
+          "title": "允许真实桌面输入",
+          "description": "关闭时所有输入工具仅返回 dry-run 计划，不执行真实点击、键入或鼠标移动。开发调试期间建议关闭，生产使用时需开启并配合确认短语使用。"
+        },
+        "defaultSnapshotFormat": {
+          "type": "string",
+          "default": "png",
+          "enum": ["png", "jpeg"],
+          "title": "截图保存格式",
+          "description": "PNG：无损画质，适合文字、UI 细节清晰的场景，文件较大（2560x1600 约 2-4MB）。JPEG：有损压缩 quality 85，视觉定位和肉眼查看差异很小，文件缩小约 80%（同屏约 300-500KB），适合远程操控和视觉模型上传场景。"
+        },
+        "maxWindowResults": {
+          "type": "integer",
+          "default": 40,
+          "minimum": 1,
+          "maximum": 200,
+          "title": "窗口列表最大数量",
+          "description": "snapshot 和 list-windows 返回的窗口数量上限。桌面窗口较多时可以减少此值加快响应。"
+        },
+        "allowRealMouseMove": {
+          "type": "boolean",
+          "default": false,
+          "title": "允许鼠标真实移动",
+          "description": "开启后点击/拖动/滚轮操作会真实移动系统鼠标指针（SetCursorPos）。关闭时仅后台发送点击事件，鼠标指针不移动。"
+        },
+        "skipConfirmationPhrase": {
+          "type": "boolean",
+          "default": false,
+          "title": "跳过确认短语",
+          "description": "开启后执行真实桌面输入不再需要输入 I_UNDERSTAND_DESKTOP_INPUT 确认短语。高风险操作请谨慎使用。"
+        },
+        "allowKeyboardInput": {
+          "type": "boolean",
+          "default": false,
+          "title": "允许键盘输入",
+          "description": "开启后允许向目标窗口注入键盘输入（类型、快捷键等）。单独控制，不与鼠标输入共享同一个开关。"
+        }
+      }
+    }
+  }
+}
