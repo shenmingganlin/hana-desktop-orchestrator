@@ -80,7 +80,7 @@ It reports:
 - required final gates
 - safety notes
 
-It always returns `executionMode: "dry-run-only"` and `executable: false` in the current implementation.
+It always returns `executionMode: "dry-run-only"` and `executable: false` in the current implementation. The click and type tools also persist their approval bundle before any real input path; a failed save blocks the action and is returned as `approvalBundleSave`.
 
 ## Preview APIs
 

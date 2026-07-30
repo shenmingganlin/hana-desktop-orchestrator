@@ -6,6 +6,7 @@
 
 - Approval tokens now bind to the current live approval bundle through `approvalBundleHash` / `bundleHash`; missing, stale, changed, or mismatched bundles are blocked by preflight and covered by fixture regression cases.
 - Legacy bundles without `bundleHash`, bundles with a tampered or internally inconsistent digest, and unsupported protocol versions remain displayable but are blocked as approval evidence until regenerated; version 2 tokens without `approvalBundleHash` and invalid bundles are rejected before storage.
+- `click-element` and `type-element` now persist and verify the approval bundle before any real UIA or fallback mouse action; save failures are surfaced and block execution.
 
 ## 0.2.3 - 2026-07-29
 

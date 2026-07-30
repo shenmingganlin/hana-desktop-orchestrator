@@ -133,17 +133,6 @@ export async function execute(input = {}, toolCtx = {}) {
 
   const capability = inspectResult.capability || {};
   const canSetValue = capability.supportsValue === true && capability.isReadOnly !== true;
-  let setResult = null;
-  // Hard gate: real UIA SetValue requires a VERIFIED signature. Writing text into an
-  // unverified element is the highest-risk path, so an absent signature forces plan-only.
-  if (approval.allowed && signatureVerified && canSetValue) {
-    const targetKey = storedElement?.automationId || storedElement?.name || String(targetIndex);
-    setResult = parseJsonOutput(runUiaHelper("uia-type", [effectiveHandle, targetKey, input.text]), "type-element");
-    // Auto-extend lease TTL on successful write (10 more minutes)
-    if (setResult?.ok && storedSnapshot) {
-      try { saveSnapshot(storedSnapshot); } catch { /* best-effort TTL extension */ }
-    }
-  }
 
   const plan = buildActionPlan({
     type: "type-element",
@@ -194,15 +183,26 @@ export async function execute(input = {}, toolCtx = {}) {
     safetyNotes: ["Real text input remains blocked unless all real-input gates pass."],
   });
 
-  saveApprovalBundle(approvalBundle, { source: "type-element" });
+  const approvalBundleSave = saveApprovalBundle(approvalBundle, { source: "type-element" });
+  const actionAllowed = approval.allowed && approvalBundleSave?.ok === true;
+  let setResult = null;
+  // Hard gate: real UIA SetValue requires a VERIFIED signature and a persisted approval bundle.
+  if (actionAllowed && signatureVerified && canSetValue) {
+    const targetKey = storedElement?.automationId || storedElement?.name || String(targetIndex);
+    setResult = parseJsonOutput(runUiaHelper("uia-type", [effectiveHandle, targetKey, input.text]), "type-element");
+    if (setResult?.ok && storedSnapshot) {
+      try { saveSnapshot(storedSnapshot); } catch { /* best-effort TTL extension */ }
+    }
+  }
 
   // Phase 2: 分层精简输出
-  const isDryRun = !approval.allowed;
+  const isDryRun = !actionAllowed;
   const base = {
-    ok: !isDryRun || approval.dryRun === undefined,
+    ok: approvalBundleSave?.ok === true && (!isDryRun || approval.dryRun === undefined),
     element: inspectResult?.element,
     signatureCheck,
     plan,
+    approvalBundleSave,
   };
 
   if (isDryRun) {

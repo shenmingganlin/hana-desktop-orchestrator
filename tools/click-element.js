@@ -136,15 +136,39 @@ export async function execute(input = {}, toolCtx = {}) {
           fallback: { attempted: true, blocked: true, reason: guard.reason, guard },
         }, null, 2);
       }
-      const res = mouseClick({ x: fbX, y: fbY, button: "left", clicks: 1 });
       const plan = buildActionPlan({
         type: "click-element",
         risk: "high",
-        target: { leaseId, snapshotId, handle: effectiveHandle || null, elementId, bounds },
+        target: { leaseId, snapshotId, handle: effectiveHandle || null, elementId, bounds, elementSignature: storedElement?.signature || null },
         action: { type: "mouse-click-fallback", x: fbX, y: fbY },
         notes: ["MODE 2 fallback: UIA inspect failed; used lease-bound storedElement.bounds after click-guard verification."],
       });
-      return JSON.stringify({ dryRun: false, fallback: true, x: fbX, y: fbY, guard, clickResult: res, plan }, null, 2);
+      const verificationRequest = buildVerificationRequest({
+        actionType: "click-element",
+        leaseId,
+        snapshotId,
+        elementId,
+        expectedSignature: storedElement?.signature || null,
+        expectedName: storedElement?.name || null,
+        expectedHandle: effectiveHandle || null,
+      });
+      const approvalBundle = buildApprovalBundle({
+        actionType: "click-element",
+        risk: "high",
+        approval,
+        plan,
+        target: plan.target,
+        cursorOverlay: null,
+        verificationRequest,
+        capability: { supportsInvoke: false, fallback: "mouse-click" },
+        safetyNotes: ["Real fallback click remains blocked unless the approval bundle is persisted."],
+      });
+      const approvalBundleSave = saveApprovalBundle(approvalBundle, { source: "click-element-fallback" });
+      if (!approvalBundleSave?.ok) {
+        return JSON.stringify({ dryRun: true, approval, leaseId, snapshotId, result: inspectResult, fallback: { attempted: false, blocked: true, reason: "approval-bundle-save-failed", approvalBundleSave }, plan }, null, 2);
+      }
+      const res = mouseClick({ x: fbX, y: fbY, button: "left", clicks: 1 });
+      return JSON.stringify({ dryRun: false, fallback: true, x: fbX, y: fbY, guard, clickResult: res, approvalBundleSave, plan }, null, 2);
     }
     return JSON.stringify({ dryRun: true, approval, leaseId: leaseId || null, snapshotId: snapshotId || null, result: inspectResult }, null, 2);
   }
@@ -172,39 +196,6 @@ export async function execute(input = {}, toolCtx = {}) {
   const center = inspectResult.element?.bounds
     ? { x: inspectResult.element.bounds.centerX, y: inspectResult.element.bounds.centerY }
     : null;
-  let invokeResult = null;
-  let cursorFlight = null;
-  // Hard gate: real UIA invoke requires a VERIFIED signature, not merely an absent one.
-  // Without a verified signature the action stays plan-only no matter the approval state.
-  if (approval.allowed && signatureVerified && capability.supportsInvoke === true) {
-    // Fly the glowing overlay cursor to the target BEFORE invoking. This is a pure
-    // visual overlay (separate transparent window); it never moves the real system
-    // cursor. Failures here are non-fatal — the click still proceeds.
-    if (center && input.showCursor !== false) {
-      try {
-        const overlayClient = getCursorOverlayClient({ pluginDir: toolCtx.pluginDir, dataDir: toolCtx.dataDir, log: toolCtx.log });
-        const flyOk = await overlayClient.clickAt({
-          toX: center.x,
-          toY: center.y,
-          durationMs: 520,
-          clicks: 1,
-          label: inspectResult.element?.name || elementId,
-        });
-        cursorFlight = { requested: true, delivered: flyOk === true };
-        // Let the flight visibly land before the real click.
-        if (flyOk) await new Promise((r) => setTimeout(r, 560));
-      } catch (err) {
-        cursorFlight = { requested: true, delivered: false, error: err?.message || String(err) };
-      }
-    }
-    const targetKey = storedElement?.automationId || storedElement?.name || String(targetIndex);
-    invokeResult = parseJsonOutput(runUiaHelper("uia-click", [effectiveHandle, targetKey]), "click-element");
-    // Auto-extend lease TTL on successful invoke (10 more minutes)
-    if (invokeResult?.ok && storedSnapshot) {
-      try { saveSnapshot(storedSnapshot); } catch { /* best-effort TTL extension */ }
-    }
-  }
-
   const overlay = center ? buildCursorOverlay({ to: center, label: inspectResult.element?.name || elementId }) : null;
   const plan = buildActionPlan({
     type: "click-element",
@@ -251,16 +242,45 @@ export async function execute(input = {}, toolCtx = {}) {
     capability,
     safetyNotes: ["Real click remains blocked unless all real-input gates pass."],
   });
-
-  saveApprovalBundle(approvalBundle, { source: "click-element" });
+  const approvalBundleSave = saveApprovalBundle(approvalBundle, { source: "click-element" });
+  const actionAllowed = approval.allowed && approvalBundleSave?.ok === true;
+  let invokeResult = null;
+  let cursorFlight = null;
+  // Hard gate: real UIA invoke requires a VERIFIED signature and a persisted approval bundle.
+  if (actionAllowed && signatureVerified && capability.supportsInvoke === true) {
+    // Fly the glowing overlay cursor to the target BEFORE invoking. This is a pure
+    // visual overlay (separate transparent window); it never moves the real system cursor.
+    if (center && input.showCursor !== false) {
+      try {
+        const overlayClient = getCursorOverlayClient({ pluginDir: toolCtx.pluginDir, dataDir: toolCtx.dataDir, log: toolCtx.log });
+        const flyOk = await overlayClient.clickAt({
+          toX: center.x,
+          toY: center.y,
+          durationMs: 520,
+          clicks: 1,
+          label: inspectResult.element?.name || elementId,
+        });
+        cursorFlight = { requested: true, delivered: flyOk === true };
+        if (flyOk) await new Promise((r) => setTimeout(r, 560));
+      } catch (err) {
+        cursorFlight = { requested: true, delivered: false, error: err?.message || String(err) };
+      }
+    }
+    const targetKey = storedElement?.automationId || storedElement?.name || String(targetIndex);
+    invokeResult = parseJsonOutput(runUiaHelper("uia-click", [effectiveHandle, targetKey]), "click-element");
+    if (invokeResult?.ok && storedSnapshot) {
+      try { saveSnapshot(storedSnapshot); } catch { /* best-effort TTL extension */ }
+    }
+  }
 
   // Phase 2: 分层精简输出
-  const isDryRun = !approval.allowed;
+  const isDryRun = !actionAllowed;
   const base = {
-    ok: !isDryRun || approval.dryRun === undefined,
+    ok: approvalBundleSave?.ok === true && (!isDryRun || approval.dryRun === undefined),
     element: inspectResult?.element,
     signatureCheck,
     plan,
+    approvalBundleSave,
   };
 
   if (isDryRun) {
