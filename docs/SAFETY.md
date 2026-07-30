@@ -26,13 +26,13 @@ These never invoke UIA patterns, inject mouse/keyboard, or modify window state.
 - `focus-window`, `manage-window` (restore/maximize/minimize/move/resize/close)
 - `mouse-click-at`, `mouse-drag`, `mouse-wheel`: raw Win32 mouse injection (fallback when UIA unavailable). These tools require an explicit `expectedWindow` target, persist an approval bundle before preview or input, reject overlay delivery failures, and re-check the hit window immediately before injection.
 
-All staged tools require `dryRun: false` and plugin config `allowRealInput: true` before real execution. The shared permission policy then applies the configured `permissionMode`:
+All staged tools require `dryRun: false` and plugin config `allowRealInput: true` before real execution. If `sessionId` is supplied, the session must exist, be unexpired, non-revoked, hash-valid, within its action limit, and match the requested action and target. The shared permission policy then applies the configured `permissionMode` or the valid session mode:
 
 - `safe`: every real action requires `I_UNDERSTAND_DESKTOP_INPUT`.
 - `auto-review`: common actions may run automatically; sensitive and destructive actions require the phrase.
 - `full-access`: common and sensitive actions may run automatically; destructive actions still require the phrase.
 
-Every mode remains fail-closed when `allowRealInput` is false. The first 0.3.0 alpha adds the decision kernel only; control sessions and remote command envelopes are not yet implemented.
+Every mode remains fail-closed when `allowRealInput` is false. This alpha also supports explicit local control sessions with a fixed mode, action scope, optional window/process scope, TTL, action limit, revocation, and SHA-256 integrity hash. A session never replaces the existing lease, signature, window guard, approval bundle, or dry-run gates.
 
 UIA element actions additionally require:
 
@@ -74,6 +74,12 @@ Raw mouse path: persist approval bundle → preview overlay → final window gua
                                         │
                              auto-extend lease TTL (10 more minutes)
 ```
+
+### Control Session Boundary
+
+`create-control-session` and `revoke-control-session` require the exact local confirmation phrase `I_UNDERSTAND_DESKTOP_INPUT`. A remote or arbitrary tool argument cannot silently create a `full-access` session. Session scope accepts action keys such as `click-element`, `click-element:uia-click`, and `*`, with optional exact window handle and process-name restrictions. `inspect-control-session` is read-only. Action counts are consumed immediately before an already-approved real action enters its injection/helper call; failed observations and stale signatures do not consume the quota.
+
+The control-session matrix is pure local testing and covers creation, hash integrity, TTL, scope, revocation, and action limits. It does not invoke UIA, capture screenshots, move the mouse, or send keyboard input. Keyboard and clipboard fallback execution, action batches, and remote command envelopes remain outside this alpha.
 
 ## What the Guard Chain Does NOT Do
 

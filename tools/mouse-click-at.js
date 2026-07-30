@@ -21,6 +21,7 @@ import { getCursorOverlayClient } from "../lib/cursor-overlay-client.js";
 import { mouseClick } from "../lib/mouse-inject.js";
 import { evaluateClickSafety } from "../lib/click-guard.js";
 import { requireRealInputApproval, resolvePluginConfig, buildActionPlan, isRealActionBlocked, REAL_INPUT_CONFIRMATION, clampInteger } from "../lib/safety.js";
+import { consumeControlSession } from "../lib/control-session.js";
 
 export const name = "mouse-click-at";
 export const description =
@@ -34,6 +35,7 @@ export const parameters = {
     y: { type: "integer", description: "点击的 Y 坐标（物理屏幕像素）" },
     button: { type: "string", enum: ["left", "right", "middle"], default: "left", description: "鼠标按键" },
     clicks: { type: "integer", default: 1, minimum: 1, maximum: 2, description: "点击次数：1=单击, 2=双击" },
+    sessionId: { type: "string", description: "可选。由 create-control-session 返回的控制会话 ID。" },
     label: { type: "string", description: "可选。预演光标旁显示的目标说明文字" },
     expectedWindow: {
       type: "object",
@@ -120,6 +122,7 @@ export async function execute(input = {}, toolCtx = {}) {
   let finalApprovalBundleSave = initialApprovalBundleSave;
   let cursorFlight = null;
   let clickResult = null;
+  let sessionConsumption = input.sessionId ? { ok: false, pending: true } : { ok: true, skipped: true };
   let blockedBy = !approval.allowed ? approval.reason : (!guard.allowed ? "click-guard" : (!initialApprovalBundleSave?.ok ? "approval-bundle-save-failed" : null));
   if (actionAllowed) {
     // Persisted evidence is the first gate before any visible preview or real input.
@@ -172,6 +175,13 @@ export async function execute(input = {}, toolCtx = {}) {
       }
     }
     if (actionAllowed) {
+      sessionConsumption = input.sessionId ? consumeControlSession(input.sessionId) : { ok: true, skipped: true };
+      if (!sessionConsumption.ok) {
+        actionAllowed = false;
+        blockedBy = sessionConsumption.reason || "control-session-consume-failed";
+      }
+    }
+    if (actionAllowed) {
       const res = mouseClick({ x: target.x, y: target.y, button, clicks });
       clickResult = { ok: res.ok === true, mode: "mouse-inject", button, clicks, target };
       if (!res.ok) clickResult.error = res.raw?.error || res.raw?.stderr || "click-failed";
@@ -192,6 +202,7 @@ export async function execute(input = {}, toolCtx = {}) {
     cursorFlight,
     clickResult,
     approvalBundleSave: finalApprovalBundleSave,
+    sessionConsumption,
     config: {
       allowRealInput: approval.allowed,
       allowRealMouseMove: config.allowRealMouseMove === true || securityMode === "maximum",

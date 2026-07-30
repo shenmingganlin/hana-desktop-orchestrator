@@ -43,7 +43,7 @@ The first permission-policy slice adds a shared decision kernel without changing
 - `auto-review`: common actions may run after `allowRealInput` is enabled; sensitive and destructive actions require confirmation.
 - `full-access`: common and sensitive actions may run after `allowRealInput` is enabled; destructive actions still require confirmation.
 
-All modes remain subject to the existing lease, element-signature, window-guard, approval-bundle, and post-action verification paths. `allowRealInput` remains `false` by default. Control sessions, action batches, and remote command envelopes are planned follow-up work; this alpha does not silently grant them.
+All modes remain subject to the existing lease, element-signature, window-guard, approval-bundle, and post-action verification paths. `allowRealInput` remains `false` by default. This alpha also adds opt-in local control sessions with explicit scope, TTL, action limits, revocation, and hash integrity checks. Action batches, keyboard fallback execution, and remote command envelopes remain follow-up work.
 
 ## Safety
 
@@ -52,8 +52,9 @@ High-risk tools default to dry-run. Real input first requires:
 1. `dryRun: false` in the tool input.
 2. `allowRealInput: true` in the plugin config.
 3. The configured `permissionMode` decision.
+4. When `sessionId` is supplied, a valid control session whose scope matches the action and target.
 
-In `safe`, the exact confirmation phrase `I_UNDERSTAND_DESKTOP_INPUT` is required for every real action. In `auto-review` and `full-access`, the shared policy can allow common or sensitive actions automatically, while destructive actions still require the phrase. Any missing gate returns a dry-run envelope without touching the system. The plugin keeps an append-only local audit timeline at `%TEMP%/hana-desktop-orchestrator/audit-timeline.json`.
+In `safe`, the exact confirmation phrase `I_UNDERSTAND_DESKTOP_INPUT` is required for every real action. In `auto-review` and `full-access`, the shared policy can allow common or sensitive actions automatically, while destructive actions still require the phrase. Any missing gate returns a dry-run envelope without touching the system. The plugin keeps an append-only local audit timeline at `%TEMP%/hana-desktop-orchestrator/audit-timeline.json`. Control sessions are stored separately at `%TEMP%/hana-desktop-orchestrator/control-session-store.json`; session creation and revocation require `I_UNDERSTAND_DESKTOP_INPUT` and never execute desktop input.
 
 ## Known Bugs and Limits
 
@@ -107,12 +108,15 @@ It aims to provide:
 | `desktop-orchestrator_mouse-wheel` | Real mouse wheel at coordinates. | High |
 | `desktop-orchestrator_vision-query` | Send a screenshot to the configured vision API and return coordinates / text answer. | Low (read-only) |
 | `desktop-orchestrator_vision-click` | PrintWindow + visual analysis + return click plan with `coordinateContract`. | Medium |
+| `desktop-orchestrator_create-control-session` | Create a scoped, expiring local control session after explicit confirmation. | High |
+| `desktop-orchestrator_inspect-control-session` | Inspect a local control session without executing desktop input. | Low |
+| `desktop-orchestrator_revoke-control-session` | Revoke a local control session after explicit confirmation. | High |
 
 `find-control` is the first higher-level read tool built on top of `ui-tree`: callers can ask for a button, input box, list item, AutomationId, class name, or supported pattern without manually scanning the full UIA tree.
 
 `inspect-window` adds a window-level read summary: it groups visible UIA elements into action controls, input controls, navigation candidates, and status/error text candidates, then suggests the next safe observation or dry-run planning step.
 
-High-risk tools default to dry-run. Real input remains blocked unless all future gates pass: `dryRun: false`, plugin config `allowRealInput: true`, and the exact confirmation phrase `I_UNDERSTAND_DESKTOP_INPUT`.
+High-risk tools default to dry-run. Real input remains blocked unless the applicable gates pass: `dryRun: false`, plugin config `allowRealInput: true`, permission policy, and for session-bound actions a valid scoped session. `safe` actions still require the exact confirmation phrase `I_UNDERSTAND_DESKTOP_INPUT`; session creation and revocation always require it.
 
 ## Review Cockpit
 

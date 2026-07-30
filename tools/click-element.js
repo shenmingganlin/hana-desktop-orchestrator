@@ -8,6 +8,7 @@ import { parseJsonOutput, runUiaHelper } from "../lib/powershell.js";
 import { buildActionPlan, requireRealInputApproval, resolvePluginConfig, REAL_INPUT_CONFIRMATION } from "../lib/safety.js";
 import { findSnapshotElement, loadSnapshot, saveSnapshot } from "../lib/snapshot-store.js";
 import { buildVerificationRequest } from "../lib/verification.js";
+import { consumeControlSession } from "../lib/control-session.js";
 import { JSON_RESULT_PREAMBLE, WINDOW_API_SNIPPET } from "../lib/windows.js";
 
 export const name = "click-element";
@@ -23,6 +24,7 @@ export const parameters = {
     handle: { type: "string", description: "目标窗口句柄；lease 快照中的窗口句柄优先级更高" },
     titleContains: { type: "string", description: "窗口标题包含文本，未提供 handle/lease 时使用；都不提供则使用前台窗口" },
     expectedName: { type: "string", description: "可选。用于防止元素漂移的名称校验；未提供时会尝试从 lease 快照恢复" },
+    sessionId: { type: "string", description: "可选。由 create-control-session 返回的控制会话 ID。" },
     dryRun: { type: "boolean", default: true, description: "是否只返回计划和 cursorOverlay，不执行点击" },
     confirmation: { type: "string", description: `真实 UIA 点击确认短语：${REAL_INPUT_CONFIRMATION}` },
     showCursor: { type: "boolean", default: true, description: "真实点击前是否显示发光光标飞向目标的动画浮层（不移动真实系统鼠标）。默认 true。" },
@@ -82,6 +84,7 @@ export async function execute(input = {}, toolCtx = {}) {
   const approval = requireRealInputApproval(input, config, {
     actionType: "click-element",
     target: { leaseId, snapshotId, handle: effectiveHandle || null, elementId, expectedName: effectiveExpectedName || null, elementSignature: effectiveSignature || null },
+    capability: null,
   });
   const helperTreeResult = parseJsonOutput(
     runUiaHelper("uia-tree", [effectiveHandle, String(Math.max(targetIndex + 1, 240))]),
@@ -171,8 +174,12 @@ export async function execute(input = {}, toolCtx = {}) {
       if (!approvalBundleSave?.ok) {
         return JSON.stringify({ dryRun: true, approval, leaseId, snapshotId, result: inspectResult, fallback: { attempted: false, blocked: true, reason: "approval-bundle-save-failed", approvalBundleSave }, plan }, null, 2);
       }
+      const sessionConsumption = input.sessionId ? consumeControlSession(input.sessionId) : { ok: true, skipped: true };
+      if (!sessionConsumption.ok) {
+        return JSON.stringify({ dryRun: true, approval, leaseId, snapshotId, result: inspectResult, fallback: { attempted: false, blocked: true, reason: sessionConsumption.reason }, sessionConsumption }, null, 2);
+      }
       const res = mouseClick({ x: fbX, y: fbY, button: "left", clicks: 1 });
-      return JSON.stringify({ dryRun: false, fallback: true, x: fbX, y: fbY, guard, clickResult: res, approvalBundleSave, plan }, null, 2);
+      return JSON.stringify({ dryRun: false, fallback: true, x: fbX, y: fbY, guard, clickResult: res, approvalBundleSave, plan, sessionConsumption }, null, 2);
     }
     return JSON.stringify({ dryRun: true, approval, leaseId: leaseId || null, snapshotId: snapshotId || null, result: inspectResult }, null, 2);
   }
@@ -250,6 +257,7 @@ export async function execute(input = {}, toolCtx = {}) {
   const actionAllowed = approval.allowed && approvalBundleSave?.ok === true;
   let invokeResult = null;
   let cursorFlight = null;
+  let sessionConsumption = input.sessionId ? { ok: false, pending: true } : { ok: true, skipped: true };
   // Hard gate: real UIA invoke requires a VERIFIED signature and a persisted approval bundle.
   if (actionAllowed && signatureVerified && capability.supportsInvoke === true) {
     // Fly the glowing overlay cursor to the target BEFORE invoking. This is a pure
@@ -271,6 +279,10 @@ export async function execute(input = {}, toolCtx = {}) {
       }
     }
     const targetKey = storedElement?.automationId || storedElement?.name || String(targetIndex);
+    sessionConsumption = input.sessionId ? consumeControlSession(input.sessionId) : { ok: true, skipped: true };
+    if (!sessionConsumption.ok) {
+      return JSON.stringify({ dryRun: true, approval, plan, approvalBundleSave, sessionConsumption }, null, 2);
+    }
     invokeResult = parseJsonOutput(runUiaHelper("uia-click", [effectiveHandle, targetKey]), "click-element");
     if (invokeResult?.ok && storedSnapshot) {
       try { saveSnapshot(storedSnapshot); } catch { /* best-effort TTL extension */ }
@@ -311,5 +323,6 @@ export async function execute(input = {}, toolCtx = {}) {
     resultPhase: invokeResult ? "invoke-complete" : "pre-action-inspect",
     result: inspectResult,
     invokeResult,
+    sessionConsumption,
   }, null, 2);
 }

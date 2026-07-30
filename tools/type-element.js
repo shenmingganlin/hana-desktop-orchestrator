@@ -5,6 +5,7 @@ import { parseJsonOutput, runUiaHelper } from "../lib/powershell.js";
 import { buildActionPlan, requireRealInputApproval, resolvePluginConfig, REAL_INPUT_CONFIRMATION } from "../lib/safety.js";
 import { findSnapshotElement, loadSnapshot, saveSnapshot } from "../lib/snapshot-store.js";
 import { buildVerificationRequest } from "../lib/verification.js";
+import { consumeControlSession } from "../lib/control-session.js";
 import { JSON_RESULT_PREAMBLE, WINDOW_API_SNIPPET } from "../lib/windows.js";
 
 export const name = "type-element";
@@ -21,6 +22,7 @@ export const parameters = {
     handle: { type: "string", description: "目标窗口句柄；lease 快照中的窗口句柄优先级更高" },
     titleContains: { type: "string", description: "窗口标题包含文本，未提供 handle/lease 时使用；都不提供则使用前台窗口" },
     expectedName: { type: "string", description: "可选。用于防止元素漂移的名称校验；未提供时会尝试从 lease 快照恢复" },
+    sessionId: { type: "string", description: "可选。由 create-control-session 返回的控制会话 ID。" },
     dryRun: { type: "boolean", default: true, description: "是否只返回计划，不执行写入" },
     confirmation: { type: "string", description: `真实 UIA 文本写入确认短语：${REAL_INPUT_CONFIRMATION}` },
   },
@@ -137,10 +139,18 @@ export async function execute(input = {}, toolCtx = {}) {
 
   const capability = inspectResult.capability || {};
   const canSetValue = capability.supportsValue === true && capability.isReadOnly !== true;
+  const effectiveCapability = canSetValue ? capability : { ...capability, fallback: "clipboard" };
+  const effectiveApproval = canSetValue
+    ? approval
+    : requireRealInputApproval(input, config, {
+        actionType: "type-element",
+        target: { leaseId, snapshotId, handle: effectiveHandle || null, elementId, expectedName: effectiveExpectedName || null, elementSignature: effectiveSignature || null },
+        capability: effectiveCapability,
+      });
 
   const plan = buildActionPlan({
     type: "type-element",
-    risk: approval.risk || "high",
+    risk: effectiveApproval.risk || "high",
     target: {
       leaseId: leaseId || null,
       snapshotId: snapshotId || null,
@@ -158,7 +168,7 @@ export async function execute(input = {}, toolCtx = {}) {
     },
     notes: [
       storedSnapshot ? "Target restored from lease snapshot." : "Target resolved from direct input or foreground window.",
-      approval.allowed ? "Real UIA SetValue approved." : `Real action blocked: ${approval.reason}`,
+      effectiveApproval.allowed ? "Real UIA SetValue approved." : `Real action blocked: ${effectiveApproval.reason}`,
       canSetValue ? "ValuePattern.SetValue is available." : "ValuePattern.SetValue is unavailable or read-only; keyboard/clipboard fallback is plan-only.",
       signatureVerified
         ? "Element signature guard passed (verified against snapshot) before any write."
@@ -178,8 +188,8 @@ export async function execute(input = {}, toolCtx = {}) {
 
   const approvalBundle = buildApprovalBundle({
     actionType: "type-element",
-    risk: approval.risk || "high",
-    approval,
+    risk: effectiveApproval.risk || "high",
+    approval: effectiveApproval,
     plan,
     target: plan.target,
     verificationRequest,
@@ -188,10 +198,15 @@ export async function execute(input = {}, toolCtx = {}) {
   });
 
   const approvalBundleSave = saveApprovalBundle(approvalBundle, { source: "type-element" });
-  const actionAllowed = approval.allowed && approvalBundleSave?.ok === true;
+  const actionAllowed = effectiveApproval.allowed && approvalBundleSave?.ok === true;
   let setResult = null;
+  let sessionConsumption = input.sessionId ? { ok: false, pending: true } : { ok: true, skipped: true };
   // Hard gate: real UIA SetValue requires a VERIFIED signature and a persisted approval bundle.
   if (actionAllowed && signatureVerified && canSetValue) {
+    sessionConsumption = input.sessionId ? consumeControlSession(input.sessionId) : { ok: true, skipped: true };
+    if (!sessionConsumption.ok) {
+      return JSON.stringify({ dryRun: true, approval: effectiveApproval, plan, approvalBundleSave, sessionConsumption }, null, 2);
+    }
     const targetKey = storedElement?.automationId || storedElement?.name || String(targetIndex);
     setResult = parseJsonOutput(runUiaHelper("uia-type", [effectiveHandle, targetKey, input.text]), "type-element");
     if (setResult?.ok && storedSnapshot) {
@@ -202,7 +217,7 @@ export async function execute(input = {}, toolCtx = {}) {
   // Phase 2: 分层精简输出
   const isDryRun = !actionAllowed;
   const base = {
-    ok: approvalBundleSave?.ok === true && (!isDryRun || approval.dryRun === undefined),
+    ok: approvalBundleSave?.ok === true && (!isDryRun || effectiveApproval.dryRun === undefined),
     element: inspectResult?.element,
     signatureCheck,
     plan,
@@ -210,11 +225,12 @@ export async function execute(input = {}, toolCtx = {}) {
   };
 
   if (isDryRun) {
-    return JSON.stringify({ ...base, dryRun: true, resultPhase: "pre-action-inspect", result: inspectResult }, null, 2);
+    return JSON.stringify({ ...base, approval: effectiveApproval, dryRun: true, resultPhase: "pre-action-inspect", result: inspectResult }, null, 2);
   }
 
   return JSON.stringify({
     ...base,
+    approval: effectiveApproval,
     dryRun: false,
     leaseId: leaseId || null,
     snapshotId: snapshotId || null,
@@ -222,5 +238,6 @@ export async function execute(input = {}, toolCtx = {}) {
     resultPhase: setResult ? "setvalue-complete" : "pre-action-inspect",
     result: inspectResult,
     setResult,
+    sessionConsumption,
   }, null, 2);
 }

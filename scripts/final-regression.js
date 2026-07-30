@@ -14,6 +14,10 @@ const syntaxFiles = [
   "lib/cockpit-summary.js",
   "lib/action-risk.js",
   "lib/permission-policy.js",
+  "lib/control-session.js",
+  "tools/create-control-session.js",
+  "tools/inspect-control-session.js",
+  "tools/revoke-control-session.js",
   "tools/self-check.js",
   "tools/protocol-test-matrix.js",
   "tools/fixture-sandbox.js",
@@ -26,6 +30,11 @@ const syntaxFiles = [
   "tools/mouse-click-at.js",
   "tools/mouse-drag.js",
   "tools/mouse-wheel.js",
+  "tools/click-element.js",
+  "tools/type-element.js",
+  "tools/focus-window.js",
+  "tools/manage-window.js",
+  "tools/protected-click.js",
   "scripts/check-package.js",
   "scripts/build-package.js",
   "scripts/smoke-package.js",
@@ -61,6 +70,10 @@ const steps = [
   {
     name: "permission-policy-matrix",
     command: [nodeCommand, ["scripts/permission-policy-matrix.js"]],
+  },
+  {
+    name: "control-session-matrix",
+    command: [nodeCommand, ["scripts/control-session-matrix.js"]],
   },
 ];
 

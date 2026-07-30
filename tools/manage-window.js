@@ -6,6 +6,7 @@ import {
   resolvePluginConfig,
   REAL_INPUT_CONFIRMATION,
 } from "../lib/safety.js";
+import { consumeControlSession } from "../lib/control-session.js";
 
 export const name = "manage-window";
 export const description =
@@ -28,6 +29,7 @@ export const parameters = {
       type: "string",
       description: "窗口标题包含文本，未提供 handle 时使用；close 操作不接受此匹配方式。",
     },
+    sessionId: { type: "string", description: "可选。由 create-control-session 返回的控制会话 ID。" },
     x: { type: "integer", description: "move/resize 的左上角 X（物理像素）。move 必填。" },
     y: { type: "integer", description: "move/resize 的左上角 Y（物理像素）。move 必填。" },
     width: { type: "integer", description: "resize 的目标宽度（物理像素）。resize 必填。" },
@@ -114,6 +116,10 @@ export async function execute(input = {}, toolCtx = {}) {
     }
   }
 
+  const sessionConsumption = input.sessionId ? consumeControlSession(input.sessionId) : { ok: true, skipped: true };
+  if (!sessionConsumption.ok) {
+    return JSON.stringify({ dryRun: true, approval, plan, sessionConsumption }, null, 2);
+  }
   const result = parseJsonOutput(runHelper("manage", args), "manage-window");
-  return JSON.stringify({ dryRun: false, approval, plan, result }, null, 2);
+  return JSON.stringify({ dryRun: false, approval, plan, result, sessionConsumption }, null, 2);
 }

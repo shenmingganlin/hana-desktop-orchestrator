@@ -9,10 +9,12 @@
 - Added the `permissionMode` configuration option; `allowRealInput` remains disabled by default.
 - Wired permission decisions into the existing real-action tools without changing the formal installed `0.2.5` runtime.
 - Added a pure in-memory permission policy matrix to the regression suite.
+- Added local control sessions with explicit confirmation, action/window/process scope, TTL, action limits, revocation, hash integrity, and session-aware action consumption.
+- Added `create-control-session`, `inspect-control-session`, and `revoke-control-session` tools plus a pure local control-session matrix.
 
 ### Limitations
 
-- This alpha does not yet implement control sessions, action batches, keyboard fallback execution, or remote command envelopes.
+- This alpha does not yet implement action batches, keyboard fallback execution, or remote command envelopes.
 - Existing lease, signature, window guard, approval bundle, and dry-run behavior remains in place.
 
 ## 0.2.5 - 2026-07-30

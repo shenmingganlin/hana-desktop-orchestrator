@@ -1,6 +1,7 @@
 import { parseJsonOutput, runPowerShell } from "../lib/powershell.js";
 import { buildActionPlan, clampInteger, requireRealInputApproval, resolvePluginConfig, REAL_INPUT_CONFIRMATION } from "../lib/safety.js";
 import { DPI_SNIPPET, JSON_RESULT_PREAMBLE, MOUSE_API_SNIPPET } from "../lib/windows.js";
+import { consumeControlSession } from "../lib/control-session.js";
 
 export const name = "protected-click";
 export const description = "受保护的桌面点击工具。默认 dry-run，只返回动作计划；真实点击需要配置允许并提供确认短语。";
@@ -11,6 +12,7 @@ export const parameters = {
     x: { type: "integer", description: "逻辑像素 X 坐标" },
     y: { type: "integer", description: "逻辑像素 Y 坐标" },
     button: { type: "string", enum: ["left", "right", "middle"], default: "left" },
+    sessionId: { type: "string", description: "可选。由 create-control-session 返回的控制会话 ID。" },
     dryRun: { type: "boolean", default: true, description: "是否只返回计划，不执行真实点击" },
     confirmation: { type: "string", description: `真实输入确认短语：${REAL_INPUT_CONFIRMATION}` },
   },
@@ -41,6 +43,11 @@ export async function execute(input = {}, toolCtx = {}) {
     return JSON.stringify({ dryRun: true, approval, plan }, null, 2);
   }
 
+  const sessionConsumption = input.sessionId ? consumeControlSession(input.sessionId) : { ok: true, skipped: true };
+  if (!sessionConsumption.ok) {
+    return JSON.stringify({ dryRun: true, approval, plan, sessionConsumption }, null, 2);
+  }
+
   const flags = button === "right"
     ? { down: "0x0008", up: "0x0010" }
     : button === "middle"
@@ -63,5 +70,5 @@ Write-JsonResult @{ ok = $true; logical = @{ x = ${x}; y = ${y} }; physical = @{
 `;
 
   const result = parseJsonOutput(runPowerShell(script), "protected-click");
-  return JSON.stringify({ dryRun: false, approval, plan, result }, null, 2);
+  return JSON.stringify({ dryRun: false, approval, plan, result, sessionConsumption }, null, 2);
 }

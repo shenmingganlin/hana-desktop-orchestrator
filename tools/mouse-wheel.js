@@ -26,6 +26,7 @@ import {
   REAL_INPUT_CONFIRMATION,
   clampInteger,
 } from "../lib/safety.js";
+import { consumeControlSession } from "../lib/control-session.js";
 
 export const name = "mouse-wheel";
 export const description =
@@ -37,6 +38,7 @@ export const parameters = {
   properties: {
     x: { type: "integer", description: "滚动点的 X 坐标（物理屏幕像素，与 ui-tree 元素坐标同一坐标系）" },
     y: { type: "integer", description: "滚动点的 Y 坐标（物理屏幕像素）" },
+    sessionId: { type: "string", description: "可选。由 create-control-session 返回的控制会话 ID。" },
     notches: {
       type: "integer",
       default: -3,
@@ -131,6 +133,7 @@ export async function execute(input = {}, toolCtx = {}) {
   let finalApprovalBundleSave = initialApprovalBundleSave;
   let cursorFlight = null;
   let scrollResult = null;
+  let sessionConsumption = input.sessionId ? { ok: false, pending: true } : { ok: true, skipped: true };
   let blockedBy = !approval.allowed ? approval.reason : (!guard.allowed ? "click-guard" : (!initialApprovalBundleSave?.ok ? "approval-bundle-save-failed" : null));
   if (actionAllowed) {
     // Persisted evidence is the first gate before any visible preview or real input.
@@ -181,6 +184,13 @@ export async function execute(input = {}, toolCtx = {}) {
       }
     }
     if (actionAllowed) {
+      sessionConsumption = input.sessionId ? consumeControlSession(input.sessionId) : { ok: true, skipped: true };
+      if (!sessionConsumption.ok) {
+        actionAllowed = false;
+        blockedBy = sessionConsumption.reason || "control-session-consume-failed";
+      }
+    }
+    if (actionAllowed) {
       const res = mouseWheel({ x: target.x, y: target.y, notches, axis });
       scrollResult = { ok: res.ok === true, mode: "mouse-inject", notches, axis, target };
       if (!res.ok) scrollResult.error = res.raw?.error || res.raw?.stderr || "scroll-failed";
@@ -200,6 +210,7 @@ export async function execute(input = {}, toolCtx = {}) {
     cursorFlight,
     scrollResult,
     approvalBundleSave: finalApprovalBundleSave,
+    sessionConsumption,
     config: {
       allowRealInput: approval.allowed,
       allowRealMouseMove: config.allowRealMouseMove === true || securityMode === "maximum",

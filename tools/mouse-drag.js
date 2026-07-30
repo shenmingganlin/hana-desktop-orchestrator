@@ -16,6 +16,7 @@ import { getCursorOverlayClient } from "../lib/cursor-overlay-client.js";
 import { mouseDrag } from "../lib/mouse-inject.js";
 import { evaluateClickSafety } from "../lib/click-guard.js";
 import { requireRealInputApproval, resolvePluginConfig, buildActionPlan, isRealActionBlocked, REAL_INPUT_CONFIRMATION, clampInteger } from "../lib/safety.js";
+import { consumeControlSession } from "../lib/control-session.js";
 
 export const name = "mouse-drag";
 export const description =
@@ -30,6 +31,7 @@ export const parameters = {
     toX: { type: "integer", description: "拖动终点 X（物理屏幕像素）" },
     toY: { type: "integer", description: "拖动终点 Y（物理屏幕像素）" },
     button: { type: "string", enum: ["left", "right", "middle"], default: "left", description: "拖动用的鼠标按键" },
+    sessionId: { type: "string", description: "可选。由 create-control-session 返回的控制会话 ID。" },
     label: { type: "string", description: "可选。预演光标旁显示的说明文字" },
     expectedWindow: {
       type: "object",
@@ -116,6 +118,7 @@ export async function execute(input = {}, toolCtx = {}) {
   let finalApprovalBundleSave = initialApprovalBundleSave;
   let cursorFlight = null;
   let dragResult = null;
+  let sessionConsumption = input.sessionId ? { ok: false, pending: true } : { ok: true, skipped: true };
   let blockedBy = !approval.allowed ? approval.reason : (!guard.allowed ? "click-guard" : (!initialApprovalBundleSave?.ok ? "approval-bundle-save-failed" : null));
   if (actionAllowed) {
     if (input.showCursor !== false) {
@@ -167,6 +170,13 @@ export async function execute(input = {}, toolCtx = {}) {
       }
     }
     if (actionAllowed) {
+      sessionConsumption = input.sessionId ? consumeControlSession(input.sessionId) : { ok: true, skipped: true };
+      if (!sessionConsumption.ok) {
+        actionAllowed = false;
+        blockedBy = sessionConsumption.reason || "control-session-consume-failed";
+      }
+    }
+    if (actionAllowed) {
       const res = mouseDrag({ fromX: path.fromX, fromY: path.fromY, toX: path.toX, toY: path.toY, button });
       dragResult = { ok: res.ok === true, mode: "mouse-inject", button, path };
       if (!res.ok) dragResult.error = res.raw?.error || res.raw?.stderr || "drag-failed";
@@ -186,6 +196,7 @@ export async function execute(input = {}, toolCtx = {}) {
     cursorFlight,
     dragResult,
     approvalBundleSave: finalApprovalBundleSave,
+    sessionConsumption,
     config: {
       allowRealInput: approval.allowed,
       allowRealMouseMove: config.allowRealMouseMove === true || securityMode === "maximum",
