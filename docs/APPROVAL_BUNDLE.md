@@ -29,6 +29,10 @@ desktop-orchestrator_region-preview
 
 These requests are not executed automatically.
 
+## Compatibility
+
+Bundles created before `bundleHash` was introduced may still be loaded for display, but they are not executable approval evidence. Preflight requires the stored `bundleHash` to be present and self-consistent, and requires the token's `approvalBundleHash` to match it. The correct migration is to generate a fresh bundle and token.
+
 ## Safety
 
 The bundle is preview-first. Real desktop input remains blocked unless all real-input gates pass:
