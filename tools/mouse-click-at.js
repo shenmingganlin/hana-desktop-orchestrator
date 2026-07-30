@@ -14,6 +14,9 @@
 //   4. preview coords and real-click coords are the SAME variable — never diverge
 //   5. every real click needs its own confirmation; no "approve once, click many"
 
+import { buildApprovalBundle } from "../lib/approval-bundle.js";
+import { saveApprovalBundle } from "../lib/approval-store.js";
+import { buildCursorOverlay } from "../lib/cursor-overlay.js";
 import { getCursorOverlayClient } from "../lib/cursor-overlay-client.js";
 import { mouseClick } from "../lib/mouse-inject.js";
 import { evaluateClickSafety } from "../lib/click-guard.js";
@@ -25,7 +28,7 @@ export const description =
 
 export const parameters = {
   type: "object",
-  required: ["x", "y"],
+  required: ["x", "y", "expectedWindow"],
   properties: {
     x: { type: "integer", description: "点击的 X 坐标（物理屏幕像素，与 ui-tree 元素坐标同一坐标系）" },
     y: { type: "integer", description: "点击的 Y 坐标（物理屏幕像素）" },
@@ -34,7 +37,7 @@ export const parameters = {
     label: { type: "string", description: "可选。预演光标旁显示的目标说明文字" },
     expectedWindow: {
       type: "object",
-      description: "可选但强烈建议：声明这次点击的意图目标窗口。点击前护栏会校验点击坐标下实际命中的窗口是否匹配，不匹配则拒绝注入（防止焦点漂移误点）。",
+      description: "必填。声明这次点击的意图目标窗口；点击前护栏会校验点击坐标下实际命中的窗口是否匹配，不匹配则拒绝注入（防止焦点漂移误点）。",
       properties: {
         handle: { type: "string", description: "目标窗口句柄（最精确）" },
         processName: { type: "string", description: "目标进程名，如 ApplicationFrameHost / msedge" },
@@ -66,72 +69,10 @@ export async function execute(input = {}, toolCtx = {}) {
   // read this exact object — they can never diverge.
   const target = { x, y };
 
-  let cursorFlight = null;
-  let clickResult = null;
-  let guard = null;
-
-  if (approval.allowed) {
-    // 0) PRE-INJECTION GUARD: a blind click can drift onto the wrong window if focus
-    //    changed since the coordinate was chosen. Verify what actually sits under the
-    //    click point (physical pixels, Z-order aware) before touching the real mouse.
-    guard = evaluateClickSafety({ x: target.x, y: target.y, expected: input.expectedWindow || null });
-    if (!guard.allowed) {
-      // Refuse the real injection. No cursor movement, no click.
-      const plan = buildActionPlan({
-        type: "mouse-click-at",
-        risk: "high",
-        target: { x, y, button, clicks },
-        action: { type: "real-mouse-click", target: { x, y }, button, clicks },
-        notes: [
-          "MODE 2: real mouse injection — BLOCKED by pre-injection guard.",
-          `Guard reason: ${guard.reason}`,
-          "The window under the click point did not match the expected target (focus drift?).",
-          "Re-read ui-tree to get fresh coordinates, ensure the target window is foreground, then retry.",
-        ],
-      });
-      return JSON.stringify({
-        dryRun: false,
-        approval,
-        blocked: true,
-        blockedBy: "click-guard",
-        target: { x, y, button, clicks },
-        guard,
-        plan,
-        cursorFlight: null,
-        clickResult: null,
-        safety: {
-          mode: 2,
-          mechanism: "SetCursorPos+mouse_event",
-          movesRealCursor: false,
-          guardBlocked: true,
-          note: "No cursor movement and no click occurred; the guard refused before injection.",
-        },
-      }, null, 2);
-    }
-
-  // 1) Preview: fly the glow cursor to the EXACT target the real click will use.
-    if (input.showCursor !== false) {
-      try {
-        const overlayClient = getCursorOverlayClient({ pluginDir: toolCtx.pluginDir, dataDir: toolCtx.dataDir, log: toolCtx.log });
-        const flyOk = await overlayClient.clickAt({
-          toX: target.x,
-          toY: target.y,
-          durationMs: 520,
-          clicks,
-          label: label || `${button} ${clicks > 1 ? "double" : "click"}`,
-        });
-        cursorFlight = { requested: true, delivered: flyOk === true };
-        if (flyOk) await new Promise((r) => setTimeout(r, 560));
-      } catch (err) {
-        cursorFlight = { requested: true, delivered: false, error: err?.message || String(err) };
-      }
-    }
-    // 2) Real injection at the SAME target.
-    const res = mouseClick({ x: target.x, y: target.y, button, clicks });
-    clickResult = { ok: res.ok === true, mode: "mouse-inject", button, clicks, target };
-    if (!res.ok) clickResult.error = res.raw?.error || res.raw?.stderr || "click-failed";
-  }
-
+  // PRE-INJECTION GUARD: always observe the point before building the evidence,
+  // including dry-run, so the bundle records the same hit-window check that gates
+  // a real click.
+  const guard = evaluateClickSafety({ x: target.x, y: target.y, expected: input.expectedWindow || null });
   const plan = buildActionPlan({
     type: "mouse-click-at",
     risk: "high",
@@ -146,33 +87,120 @@ export async function execute(input = {}, toolCtx = {}) {
     ],
   });
 
-  // In dry-run, still probe what sits under the point so the user can SEE the likely
-  // hit target in the preview (no injection happens regardless).
-  if (!approval.allowed && guard === null) {
-    guard = evaluateClickSafety({ x: target.x, y: target.y, expected: input.expectedWindow || null });
+  const cursorOverlay = buildCursorOverlay({
+    to: target,
+    label: label || `${button} ${clicks > 1 ? "double" : "click"}`,
+  });
+  const approvalBundle = buildApprovalBundle({
+    actionType: "mouse-click-at",
+    risk: "high",
+    approval,
+    plan,
+    target: { x, y, button, clicks, expectedWindow: input.expectedWindow || null, guard },
+    cursorOverlay,
+    capability: { mode: 2, mechanism: "SetCursorPos+mouse_event", coordinateContract: "physical-pixels" },
+    safetyNotes: [
+      "Raw coordinate action has no lease-bound element; the hit-window guard is the required freshness check.",
+      "Initial approval evidence is preview-only; the approved bundle is persisted only after the final guard.",
+    ],
+    safetyRequirements: {
+      realActionBlocked: true,
+      requiresFreshLease: false,
+      requiresSignatureGuard: false,
+      requiresWindowGuard: true,
+    },
+  });
+  const initialApprovalBundleSave = saveApprovalBundle(approvalBundle, { source: "mouse-click-at" });
+  let actionAllowed = approval.allowed && guard.allowed && initialApprovalBundleSave?.ok === true;
+  let finalGuard = null;
+  let finalApprovalBundleSave = initialApprovalBundleSave;
+  let cursorFlight = null;
+  let clickResult = null;
+  let blockedBy = !approval.allowed ? approval.reason : (!guard.allowed ? "click-guard" : (!initialApprovalBundleSave?.ok ? "approval-bundle-save-failed" : null));
+  if (actionAllowed) {
+    // Persisted evidence is the first gate before any visible preview or real input.
+    if (input.showCursor !== false) {
+      try {
+        const overlayClient = getCursorOverlayClient({ pluginDir: toolCtx.pluginDir, dataDir: toolCtx.dataDir, log: toolCtx.log });
+        const flyOk = await overlayClient.clickAt({
+          toX: target.x,
+          toY: target.y,
+          durationMs: 520,
+          clicks,
+          label: label || `${button} ${clicks > 1 ? "double" : "click"}`,
+        });
+        cursorFlight = { requested: true, delivered: flyOk === true };
+        if (!flyOk) {
+          actionAllowed = false;
+          blockedBy = "cursor-overlay-failed";
+        } else {
+          await new Promise((r) => setTimeout(r, 560));
+        }
+      } catch (err) {
+        cursorFlight = { requested: true, delivered: false, error: err?.message || String(err) };
+        actionAllowed = false;
+        blockedBy = "cursor-overlay-failed";
+      }
+    }
+    if (actionAllowed) {
+      // Re-check after the preview delay to close the guard-to-injection TOCTOU gap.
+      finalGuard = evaluateClickSafety({ x: target.x, y: target.y, expected: input.expectedWindow || null });
+      if (!finalGuard.allowed) {
+        actionAllowed = false;
+        blockedBy = "click-guard-recheck";
+      } else {
+        const finalApprovalBundle = buildApprovalBundle({
+          ...approvalBundle,
+          target: { ...approvalBundle.target, guard: finalGuard },
+          safetyNotes: [...(approvalBundle.safety?.notes || []), "Final hit-window guard re-check passed immediately before input."],
+          safetyRequirements: {
+            realActionBlocked: false,
+            requiresFreshLease: false,
+            requiresSignatureGuard: false,
+            requiresWindowGuard: true,
+          },
+        });
+        finalApprovalBundleSave = saveApprovalBundle(finalApprovalBundle, { source: "mouse-click-at-final" });
+        if (finalApprovalBundleSave?.ok !== true) {
+          actionAllowed = false;
+          blockedBy = "approval-bundle-save-failed";
+        }
+      }
+    }
+    if (actionAllowed) {
+      const res = mouseClick({ x: target.x, y: target.y, button, clicks });
+      clickResult = { ok: res.ok === true, mode: "mouse-inject", button, clicks, target };
+      if (!res.ok) clickResult.error = res.raw?.error || res.raw?.stderr || "click-failed";
+    }
   }
 
   return JSON.stringify({
     dryRun: !approval.allowed,
+    blocked: approval.allowed && !actionAllowed,
+    blockedBy,
+
     approval,
     target: { x, y, button, clicks },
     guard,
+    finalGuard,
     plan,
+    cursorOverlay,
     cursorFlight,
     clickResult,
+    approvalBundleSave: finalApprovalBundleSave,
     config: {
       allowRealInput: approval.allowed,
       allowRealMouseMove: config.allowRealMouseMove === true || securityMode === "maximum",
-      skipConfirmationPhrase: config.skipConfirmationPhrase === true || securityMode === "permissive" || securityMode === "maximum",
       securityMode: config.securityMode || "normal",
     },
     safety: {
       mode: 2,
       mechanism: "SetCursorPos+mouse_event",
-      movesRealCursor: approval.allowed,
+      movesRealCursor: actionAllowed,
       previewMatchesClick: true,
       requiresPerClickConfirmation: true,
       guardChecksHitWindow: true,
+      approvalBundlePersistedBeforeInput: finalApprovalBundleSave?.ok === true,
     },
   }, null, 2);
 }

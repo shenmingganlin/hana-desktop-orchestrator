@@ -131,7 +131,7 @@ The widget uses \`full-access\` because the plugin operates at the same system-p
 - Native helper process execution (desktop-helper.exe, desktop-uia-helper.exe)
 - Widget review cockpit surface
 
-All high-risk tools default to \`dryRun: true\` and require explicit confirmation plus signature verification before real execution. See [\`docs/SAFETY.md\`](docs/SAFETY.md) for the full guard chain.
+All high-risk tools default to \`dryRun: true\` and require explicit confirmation plus signature verification before real execution. Raw coordinate mouse tools additionally require `expectedWindow`, persist approval evidence before input, reject failed cursor previews, and re-check the hit window immediately before injection. See [\`docs/SAFETY.md\`](docs/SAFETY.md) for the full guard chain.
 
 ## Audit Evidence
 

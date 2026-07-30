@@ -66,12 +66,6 @@
           "title": "允许鼠标真实移动",
           "description": "开启后点击/拖动/滚轮操作会真实移动系统鼠标指针（SetCursorPos）。关闭时仅后台发送点击事件，鼠标指针不移动。"
         },
-        "skipConfirmationPhrase": {
-          "type": "boolean",
-          "default": false,
-          "title": "跳过确认短语",
-          "description": "开启后执行真实桌面输入不再需要输入 I_UNDERSTAND_DESKTOP_INPUT 确认短语。高风险操作请谨慎使用。"
-        },
         "allowKeyboardInput": {
           "type": "boolean",
           "default": false,

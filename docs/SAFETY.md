@@ -24,17 +24,22 @@ These never invoke UIA patterns, inject mouse/keyboard, or modify window state.
 - `click-element`: UIA InvokePattern (or TogglePattern / ExpandCollapsePattern fallback; last-resort mouse_event fallback)
 - `type-element`: UIA ValuePattern.SetValue
 - `focus-window`, `manage-window` (restore/maximize/minimize/move/resize/close)
-- `mouse-click-at`, `mouse-drag`, `mouse-wheel`: raw Win32 mouse injection (fallback when UIA unavailable)
+- `mouse-click-at`, `mouse-drag`, `mouse-wheel`: raw Win32 mouse injection (fallback when UIA unavailable). These tools require an explicit `expectedWindow` target, persist an approval bundle before preview or input, reject overlay delivery failures, and re-check the hit window immediately before injection.
 
-All staged tools require **all** of the following before real execution:
+All staged tools require these common gates before real execution:
 
 1. `dryRun: false`
 2. Plugin config `allowRealInput: true`
 3. Exact confirmation phrase: `I_UNDERSTAND_DESKTOP_INPUT`
+
+UIA element actions additionally require:
+
 4. Fresh lease-bound snapshot (from `ui-tree`)
 5. Verified element signature (matched against snapshot)
 6. Post-action verification request available
 7. Audit event recording
+
+Raw coordinate mouse actions additionally require an explicit `expectedWindow`. A missing target is rejected with `no-expected-target`; these actions use the hit-window guard instead of lease-bound element signatures. Their approval bundle records `requiresFreshLease: false` and `requiresSignatureGuard: false`, then enforces overlay delivery and a final hit-window re-check immediately before Win32 input.
 
 ### Vision-Assisted (network-dependent)
 - `vision-query`: sends screenshot to configured vision API; returns pixel coordinates or SoM selection
@@ -60,6 +65,8 @@ user calls tool               dryRun: true ──→ returns plan + cursor overl
                                        YES
                                         │
                             execute UIA Invoke / SetValue
+
+Raw mouse path: persist approval bundle → preview overlay → final window guard re-check → persist final guard evidence → Win32 input
                                         │
                              record audit event (hash-chained)
                                         │

@@ -7,6 +7,8 @@
 - Approval tokens now bind to the current live approval bundle through `approvalBundleHash` / `bundleHash`; missing, stale, changed, or mismatched bundles are blocked by preflight and covered by fixture regression cases.
 - Legacy bundles without `bundleHash`, bundles with a tampered or internally inconsistent digest, and unsupported protocol versions remain displayable but are blocked as approval evidence until regenerated; version 2 tokens without `approvalBundleHash` and invalid bundles are rejected before storage.
 - `click-element` and `type-element` now persist and verify the approval bundle before any real UIA or fallback mouse action; save failures are surfaced and block execution.
+- Raw `mouse-click-at`, `mouse-drag`, and `mouse-wheel` actions now require `expectedWindow`, persist approval evidence before preview/input, reject failed overlays, and re-check the hit window immediately before injection.
+- The confirmation phrase is now unconditional for real input; the `skipConfirmationPhrase` configuration escape hatch was removed.
 
 ## 0.2.3 - 2026-07-29
 

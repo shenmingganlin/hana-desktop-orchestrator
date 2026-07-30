@@ -9,6 +9,9 @@
 // path (fly to start, press, drag with trail, release) BEFORE the real drag, and
 // the preview uses the SAME from/to coordinates as the real injection.
 
+import { buildApprovalBundle } from "../lib/approval-bundle.js";
+import { saveApprovalBundle } from "../lib/approval-store.js";
+import { buildCursorOverlay } from "../lib/cursor-overlay.js";
 import { getCursorOverlayClient } from "../lib/cursor-overlay-client.js";
 import { mouseDrag } from "../lib/mouse-inject.js";
 import { evaluateClickSafety } from "../lib/click-guard.js";
@@ -20,7 +23,7 @@ export const description =
 
 export const parameters = {
   type: "object",
-  required: ["fromX", "fromY", "toX", "toY"],
+  required: ["fromX", "fromY", "toX", "toY", "expectedWindow"],
   properties: {
     fromX: { type: "integer", description: "拖动起点 X（物理屏幕像素）" },
     fromY: { type: "integer", description: "拖动起点 Y（物理屏幕像素）" },
@@ -30,7 +33,7 @@ export const parameters = {
     label: { type: "string", description: "可选。预演光标旁显示的说明文字" },
     expectedWindow: {
       type: "object",
-      description: "可选但强烈建议：声明拖拽起点的意图目标窗口。拖拽前护栏会校验起点坐标下实际命中的窗口是否匹配，不匹配则拒绝注入。",
+      description: "必填。声明拖拽起点的意图目标窗口；拖拽前护栏会校验起点坐标下实际命中的窗口是否匹配，不匹配则拒绝注入。",
       properties: {
         handle: { type: "string", description: "目标窗口句柄" },
         processName: { type: "string", description: "目标进程名" },
@@ -55,73 +58,15 @@ export async function execute(input = {}, toolCtx = {}) {
   const button = ["left", "right", "middle"].includes(input.button) ? input.button : "left";
   const label = String(input.label || "").slice(0, 60);
 
-  const approval = requireRealInputApproval(input, resolvePluginConfig(toolCtx));
+  const config = resolvePluginConfig(toolCtx);
+  const securityMode = String(config.securityMode || "normal").toLowerCase();
+  const approval = requireRealInputApproval(input, config);
 
   // Single source of truth for the path. Preview and real drag both read these.
   const path = { fromX, fromY, toX, toY };
-
-  let cursorFlight = null;
-  let dragResult = null;
-  let guard = null;
-
-  if (approval.allowed) {
-    // PRE-INJECTION GUARD: verify the drag START point actually sits on the intended
-    // window before pressing the real mouse (focus drift protection).
-    guard = evaluateClickSafety({ x: path.fromX, y: path.fromY, expected: input.expectedWindow || null });
-    if (!guard.allowed) {
-      const plan = buildActionPlan({
-        type: "mouse-drag",
-        risk: "high",
-        target: { fromX, fromY, toX, toY, button },
-        action: { type: "real-mouse-drag", path, button },
-        notes: [
-          "MODE 2: real mouse drag — BLOCKED by pre-injection guard.",
-          `Guard reason: ${guard.reason}`,
-          "The window under the drag start point did not match the expected target.",
-          "Re-read ui-tree for fresh coordinates, ensure the target window is foreground, then retry.",
-        ],
-      });
-      return JSON.stringify({
-        dryRun: false,
-        approval,
-        blocked: true,
-        blockedBy: "click-guard",
-        path: { fromX, fromY, toX, toY, button },
-        guard,
-        plan,
-        cursorFlight: null,
-        dragResult: null,
-        safety: {
-          mode: 2,
-          mechanism: "SetCursorPos+mouse_event",
-          movesRealCursor: false,
-          guardBlocked: true,
-          note: "No cursor movement and no drag occurred; the guard refused before injection.",
-        },
-      }, null, 2);
-    }
-
-  if (input.showCursor !== false) {      try {
-        const overlayClient = getCursorOverlayClient({ pluginDir: toolCtx.pluginDir, dataDir: toolCtx.dataDir, log: toolCtx.log });
-        const flyOk = await overlayClient.dragTo({
-          fromX: path.fromX,
-          fromY: path.fromY,
-          toX: path.toX,
-          toY: path.toY,
-          durationMs: 900,
-          label: label || "drag",
-        });
-        cursorFlight = { requested: true, delivered: flyOk === true };
-        // Let the full preview (fly+press+drag+release) play before the real drag.
-        if (flyOk) await new Promise((r) => setTimeout(r, 1500));
-      } catch (err) {
-        cursorFlight = { requested: true, delivered: false, error: err?.message || String(err) };
-      }
-    }
-    const res = mouseDrag({ fromX: path.fromX, fromY: path.fromY, toX: path.toX, toY: path.toY, button });
-    dragResult = { ok: res.ok === true, mode: "mouse-inject", button, path };
-    if (!res.ok) dragResult.error = res.raw?.error || res.raw?.stderr || "drag-failed";
-  }
+  // Always observe the start point so the bundle records the same window guard that
+  // gates a real drag. This observation does not move the cursor.
+  const guard = evaluateClickSafety({ x: path.fromX, y: path.fromY, expected: input.expectedWindow || null });
 
   const plan = buildActionPlan({
     type: "mouse-drag",
@@ -136,25 +81,120 @@ export async function execute(input = {}, toolCtx = {}) {
     ],
   });
 
-  // In dry-run, probe what sits under the drag start so the user can preview it.
-  if (!approval.allowed && guard === null) {
-    guard = evaluateClickSafety({ x: path.fromX, y: path.fromY, expected: input.expectedWindow || null });
+  const cursorOverlay = buildCursorOverlay({
+    from: { x: fromX, y: fromY },
+    to: { x: toX, y: toY },
+    durationMs: 900,
+    label: label || "drag",
+  });
+  const approvalBundle = buildApprovalBundle({
+    actionType: "mouse-drag",
+    risk: "high",
+    approval,
+    plan,
+    target: { fromX, fromY, toX, toY, button, expectedWindow: input.expectedWindow || null, guard },
+    cursorOverlay,
+    capability: { mode: 2, mechanism: "SetCursorPos+mouse_event", coordinateContract: "physical-pixels" },
+    safetyNotes: [
+      "Raw coordinate action has no lease-bound element; the start-point hit-window guard is the required freshness check.",
+      "Initial approval evidence is preview-only; the approved bundle is persisted only after the final guard.",
+    ],
+    safetyRequirements: {
+      realActionBlocked: true,
+      requiresFreshLease: false,
+      requiresSignatureGuard: false,
+      requiresWindowGuard: true,
+    },
+  });
+  const initialApprovalBundleSave = saveApprovalBundle(approvalBundle, { source: "mouse-drag" });
+  let actionAllowed = approval.allowed && guard.allowed && initialApprovalBundleSave?.ok === true;
+  let finalGuard = null;
+  let finalApprovalBundleSave = initialApprovalBundleSave;
+  let cursorFlight = null;
+  let dragResult = null;
+  let blockedBy = !approval.allowed ? approval.reason : (!guard.allowed ? "click-guard" : (!initialApprovalBundleSave?.ok ? "approval-bundle-save-failed" : null));
+  if (actionAllowed) {
+    if (input.showCursor !== false) {
+      try {
+        const overlayClient = getCursorOverlayClient({ pluginDir: toolCtx.pluginDir, dataDir: toolCtx.dataDir, log: toolCtx.log });
+        const flyOk = await overlayClient.dragTo({
+          fromX: path.fromX,
+          fromY: path.fromY,
+          toX: path.toX,
+          toY: path.toY,
+          durationMs: 900,
+          label: label || "drag",
+        });
+        cursorFlight = { requested: true, delivered: flyOk === true };
+        if (!flyOk) {
+          actionAllowed = false;
+          blockedBy = "cursor-overlay-failed";
+        } else {
+          await new Promise((r) => setTimeout(r, 1500));
+        }
+      } catch (err) {
+        cursorFlight = { requested: true, delivered: false, error: err?.message || String(err) };
+        actionAllowed = false;
+        blockedBy = "cursor-overlay-failed";
+      }
+    }
+    if (actionAllowed) {
+      finalGuard = evaluateClickSafety({ x: path.fromX, y: path.fromY, expected: input.expectedWindow || null });
+      if (!finalGuard.allowed) {
+        actionAllowed = false;
+        blockedBy = "click-guard-recheck";
+      } else {
+        const finalApprovalBundle = buildApprovalBundle({
+          ...approvalBundle,
+          target: { ...approvalBundle.target, guard: finalGuard },
+          safetyNotes: [...(approvalBundle.safety?.notes || []), "Final start-point hit-window guard re-check passed immediately before input."],
+          safetyRequirements: {
+            realActionBlocked: false,
+            requiresFreshLease: false,
+            requiresSignatureGuard: false,
+            requiresWindowGuard: true,
+          },
+        });
+        finalApprovalBundleSave = saveApprovalBundle(finalApprovalBundle, { source: "mouse-drag-final" });
+        if (finalApprovalBundleSave?.ok !== true) {
+          actionAllowed = false;
+          blockedBy = "approval-bundle-save-failed";
+        }
+      }
+    }
+    if (actionAllowed) {
+      const res = mouseDrag({ fromX: path.fromX, fromY: path.fromY, toX: path.toX, toY: path.toY, button });
+      dragResult = { ok: res.ok === true, mode: "mouse-inject", button, path };
+      if (!res.ok) dragResult.error = res.raw?.error || res.raw?.stderr || "drag-failed";
+    }
   }
 
   return JSON.stringify({
     dryRun: !approval.allowed,
+    blocked: approval.allowed && !actionAllowed,
+    blockedBy,
     approval,
     path: { fromX, fromY, toX, toY, button },
     guard,
+    finalGuard,
     plan,
+    cursorOverlay,
     cursorFlight,
     dragResult,
+    approvalBundleSave: finalApprovalBundleSave,
+    config: {
+      allowRealInput: approval.allowed,
+      allowRealMouseMove: config.allowRealMouseMove === true || securityMode === "maximum",
+      securityMode: config.securityMode || "normal",
+    },
     safety: {
       mode: 2,
       mechanism: "SetCursorPos+mouse_event",
-      movesRealCursor: approval.allowed,
+      movesRealCursor: actionAllowed,
       previewMatchesDrag: true,
+      requiresPerActionConfirmation: true,
       guardChecksStartWindow: true,
+      approvalBundlePersistedBeforeInput: finalApprovalBundleSave?.ok === true,
     },
   }, null, 2);
 }
