@@ -12,6 +12,8 @@ const syntaxFiles = [
   "lib/audit-timeline.js",
   "lib/audit-evidence-export.js",
   "lib/cockpit-summary.js",
+  "lib/action-risk.js",
+  "lib/permission-policy.js",
   "tools/self-check.js",
   "tools/protocol-test-matrix.js",
   "tools/fixture-sandbox.js",
@@ -55,6 +57,10 @@ const steps = [
   {
     name: "fixture-sandbox",
     command: [nodeCommand, ["-e", "import('./lib/fixture-sandbox.js').then(({ runFixtureSandbox }) => { const result = runFixtureSandbox(); console.log(JSON.stringify(result, null, 2)); if (!result.summary.allPassed) process.exit(1); })"]],
+  },
+  {
+    name: "permission-policy-matrix",
+    command: [nodeCommand, ["scripts/permission-policy-matrix.js"]],
   },
 ];
 

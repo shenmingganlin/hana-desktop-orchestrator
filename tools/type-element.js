@@ -76,7 +76,11 @@ export async function execute(input = {}, toolCtx = {}) {
   const effectiveHandle = storedSnapshot?.window?.handle || input.handle || "";
   const effectiveSignature = String(input.elementSignature || storedElement?.signature || "").trim();
   const effectiveExpectedName = input.expectedName ?? storedElement?.name ?? "";
-  const approval = requireRealInputApproval(input, resolvePluginConfig(toolCtx));
+  const config = resolvePluginConfig(toolCtx);
+  const approval = requireRealInputApproval(input, config, {
+    actionType: "type-element",
+    target: { leaseId, snapshotId, handle: effectiveHandle || null, elementId, expectedName: effectiveExpectedName || null, elementSignature: effectiveSignature || null },
+  });
 
   const helperTreeResult = parseJsonOutput(
     runUiaHelper("uia-tree", [effectiveHandle, String(Math.max(targetIndex + 1, 240))]),
@@ -136,7 +140,7 @@ export async function execute(input = {}, toolCtx = {}) {
 
   const plan = buildActionPlan({
     type: "type-element",
-    risk: "high",
+    risk: approval.risk || "high",
     target: {
       leaseId: leaseId || null,
       snapshotId: snapshotId || null,
@@ -174,7 +178,7 @@ export async function execute(input = {}, toolCtx = {}) {
 
   const approvalBundle = buildApprovalBundle({
     actionType: "type-element",
-    risk: "high",
+    risk: approval.risk || "high",
     approval,
     plan,
     target: plan.target,

@@ -26,11 +26,13 @@ These never invoke UIA patterns, inject mouse/keyboard, or modify window state.
 - `focus-window`, `manage-window` (restore/maximize/minimize/move/resize/close)
 - `mouse-click-at`, `mouse-drag`, `mouse-wheel`: raw Win32 mouse injection (fallback when UIA unavailable). These tools require an explicit `expectedWindow` target, persist an approval bundle before preview or input, reject overlay delivery failures, and re-check the hit window immediately before injection.
 
-All staged tools require these common gates before real execution:
+All staged tools require `dryRun: false` and plugin config `allowRealInput: true` before real execution. The shared permission policy then applies the configured `permissionMode`:
 
-1. `dryRun: false`
-2. Plugin config `allowRealInput: true`
-3. Exact confirmation phrase: `I_UNDERSTAND_DESKTOP_INPUT`
+- `safe`: every real action requires `I_UNDERSTAND_DESKTOP_INPUT`.
+- `auto-review`: common actions may run automatically; sensitive and destructive actions require the phrase.
+- `full-access`: common and sensitive actions may run automatically; destructive actions still require the phrase.
+
+Every mode remains fail-closed when `allowRealInput` is false. The first 0.3.0 alpha adds the decision kernel only; control sessions and remote command envelopes are not yet implemented.
 
 UIA element actions additionally require:
 
@@ -54,7 +56,7 @@ user calls tool               dryRun: true ──→ returns plan + cursor overl
                                         │
                                    dryRun: false
                                         │
-                              approve via phrase + config
+                              permission mode + config
                                         │
                              load lease snapshot (ui-tree result)
                                         │
@@ -76,6 +78,7 @@ Raw mouse path: persist approval bundle → preview overlay → final window gua
 ## What the Guard Chain Does NOT Do
 
 - It does **not** ask Hana's native application reviewer for each tool call.
+- In `auto-review` and `full-access`, allowed actions do not require a per-action phrase; the local permission policy decides based on action risk.
 - It does **not** prove human intent (the confirmation phrase is a fixed string visible in source code and tool parameters).
 - It does **not** sign audit events with a trusted key (SHA-256 hashes are for corruption detection only).
 - It does **not** sandbox the helper executables (they run under the Hana process identity).

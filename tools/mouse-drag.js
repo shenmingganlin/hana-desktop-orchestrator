@@ -60,7 +60,11 @@ export async function execute(input = {}, toolCtx = {}) {
 
   const config = resolvePluginConfig(toolCtx);
   const securityMode = String(config.securityMode || "normal").toLowerCase();
-  const approval = requireRealInputApproval(input, config);
+  const approval = requireRealInputApproval(input, config, {
+    actionType: "mouse-drag",
+    action: { type: "real-mouse-drag", button },
+    target: input.expectedWindow || null,
+  });
 
   // Single source of truth for the path. Preview and real drag both read these.
   const path = { fromX, fromY, toX, toY };
@@ -70,7 +74,7 @@ export async function execute(input = {}, toolCtx = {}) {
 
   const plan = buildActionPlan({
     type: "mouse-drag",
-    risk: "high",
+    risk: approval.risk || "high",
     target: { fromX, fromY, toX, toY, button },
     action: { type: "real-mouse-drag", path, button },
     notes: [
@@ -89,7 +93,7 @@ export async function execute(input = {}, toolCtx = {}) {
   });
   const approvalBundle = buildApprovalBundle({
     actionType: "mouse-drag",
-    risk: "high",
+    risk: approval.risk || "sensitive",
     approval,
     plan,
     target: { fromX, fromY, toX, toY, button, expectedWindow: input.expectedWindow || null, guard },

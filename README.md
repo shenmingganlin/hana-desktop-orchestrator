@@ -25,7 +25,8 @@ Plugin config (stored in `%APPDATA%/hana-desktop-orchestrator/config.json` or th
 
 | Key | Description | Default |
 | --- | --- | --- |
-| `allowRealInput` | Master switch for real mouse/keyboard actions. High-risk tools check this on every invoke. | `true` (when explicitly enabled) |
+| `allowRealInput` | Master switch for real mouse/keyboard actions. It must be explicitly enabled before any mode can execute desktop input. | `false` |
+| `permissionMode` | `safe` asks for every real action; `auto-review` allows common actions and asks for sensitive ones; `full-access` allows non-destructive actions and still asks before destructive actions. | `safe` |
 | `defaultSnapshotFormat` | Screenshot encoding. | `png` |
 | `maxWindowResults` | How many windows `list-windows` returns. | `40` |
 | `visionApiBase` | Vision API base URL (Anthropic-format like `https://api.minimaxi.com/anthropic` or OpenAI-format). | empty |
@@ -34,15 +35,25 @@ Plugin config (stored in `%APPDATA%/hana-desktop-orchestrator/config.json` or th
 
 Without a vision config, `vision-query` and `vision-click` return a clear error explaining how to set it.
 
+### Permission modes (0.3.0-alpha.1)
+
+The first permission-policy slice adds a shared decision kernel without changing the default safety boundary:
+
+- `safe`: read-only actions are allowed; real actions require the exact confirmation phrase.
+- `auto-review`: common actions may run after `allowRealInput` is enabled; sensitive and destructive actions require confirmation.
+- `full-access`: common and sensitive actions may run after `allowRealInput` is enabled; destructive actions still require confirmation.
+
+All modes remain subject to the existing lease, element-signature, window-guard, approval-bundle, and post-action verification paths. `allowRealInput` remains `false` by default. Control sessions, action batches, and remote command envelopes are planned follow-up work; this alpha does not silently grant them.
+
 ## Safety
 
-High-risk tools default to dry-run. Real input requires three gates:
+High-risk tools default to dry-run. Real input first requires:
 
 1. `dryRun: false` in the tool input.
 2. `allowRealInput: true` in the plugin config.
-3. The exact confirmation phrase `I_UNDERSTAND_DESKTOP_INPUT`.
+3. The configured `permissionMode` decision.
 
-Any missing gate returns a dry-run envelope without touching the system. The plugin keeps an append-only local audit timeline at `%TEMP%/hana-desktop-orchestrator/audit-timeline.json`.
+In `safe`, the exact confirmation phrase `I_UNDERSTAND_DESKTOP_INPUT` is required for every real action. In `auto-review` and `full-access`, the shared policy can allow common or sensitive actions automatically, while destructive actions still require the phrase. Any missing gate returns a dry-run envelope without touching the system. The plugin keeps an append-only local audit timeline at `%TEMP%/hana-desktop-orchestrator/audit-timeline.json`.
 
 ## Known Bugs and Limits
 
@@ -65,7 +76,7 @@ It aims to provide:
 3. UIA-first semantic actions
 4. lease-bound stale-target protection
 5. explicit dry-run planning before dangerous actions
-6. review cockpit approval before any future real-input phase
+6. permission-mode and review-cockpit decisions before real-input execution
 7. post-action and visual verification hooks
 8. local audit evidence export
 

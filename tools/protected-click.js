@@ -21,7 +21,11 @@ export async function execute(input = {}, toolCtx = {}) {
   const y = clampInteger(input.y);
   const button = input.button || "left";
   const config = resolvePluginConfig(toolCtx);
-  const approval = requireRealInputApproval(input, config);
+  const approval = requireRealInputApproval(input, config, {
+    actionType: "protected-click",
+    action: { type: "click", button },
+    target: { x, y },
+  });
 
   const plan = buildActionPlan({
     type: "protected-click",

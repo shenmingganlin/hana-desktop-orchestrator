@@ -74,8 +74,13 @@ function riskFor(action) {
 export async function execute(input = {}, toolCtx = {}) {
   const action = validateInput(input);
 
-  const approval = requireRealInputApproval(input, resolvePluginConfig(toolCtx));
+  const config = resolvePluginConfig(toolCtx);
   const target = { handle: input.handle || null, titleContains: input.titleContains || null };
+  const approval = requireRealInputApproval(input, config, {
+    actionType: "manage-window",
+    action: { type: action },
+    target,
+  });
   const geometry =
     action === "move"
       ? { x: clampInteger(input.x), y: clampInteger(input.y) }

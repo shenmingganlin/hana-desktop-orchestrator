@@ -75,7 +75,11 @@ export async function execute(input = {}, toolCtx = {}) {
 
   const config = resolvePluginConfig(toolCtx);
   const securityMode = String(config.securityMode || "normal").toLowerCase();
-  const approval = requireRealInputApproval(input, config);
+  const approval = requireRealInputApproval(input, config, {
+    actionType: "mouse-wheel",
+    action: { type: "real-mouse-wheel", axis, notches },
+    target: input.expectedWindow || null,
+  });
 
   // SINGLE SOURCE OF TRUTH: preview and real scroll both read this exact object.
   const target = { x, y };
@@ -85,7 +89,7 @@ export async function execute(input = {}, toolCtx = {}) {
 
   const plan = buildActionPlan({
     type: "mouse-wheel",
-    risk: "medium",
+    risk: approval.risk || "medium",
     target: { x, y, notches, axis },
     action: { type: "real-mouse-wheel", target: { x, y }, notches, axis },
     notes: [
@@ -104,7 +108,7 @@ export async function execute(input = {}, toolCtx = {}) {
   });
   const approvalBundle = buildApprovalBundle({
     actionType: "mouse-wheel",
-    risk: "medium",
+    risk: approval.risk || "common",
     approval,
     plan,
     target: { x, y, notches, axis, expectedWindow: input.expectedWindow || null, guard },

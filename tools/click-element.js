@@ -78,7 +78,11 @@ export async function execute(input = {}, toolCtx = {}) {
   const effectiveHandle = storedSnapshot?.window?.handle || input.handle || "";
   const effectiveSignature = String(input.elementSignature || storedElement?.signature || "").trim();
   const effectiveExpectedName = input.expectedName ?? storedElement?.name ?? "";
-  const approval = requireRealInputApproval(input, resolvePluginConfig(toolCtx));
+  const config = resolvePluginConfig(toolCtx);
+  const approval = requireRealInputApproval(input, config, {
+    actionType: "click-element",
+    target: { leaseId, snapshotId, handle: effectiveHandle || null, elementId, expectedName: effectiveExpectedName || null, elementSignature: effectiveSignature || null },
+  });
   const helperTreeResult = parseJsonOutput(
     runUiaHelper("uia-tree", [effectiveHandle, String(Math.max(targetIndex + 1, 240))]),
     "click-element-tree"
@@ -199,7 +203,7 @@ export async function execute(input = {}, toolCtx = {}) {
   const overlay = center ? buildCursorOverlay({ to: center, label: inspectResult.element?.name || elementId }) : null;
   const plan = buildActionPlan({
     type: "click-element",
-    risk: "high",
+    risk: approval.risk || "high",
     target: {
       leaseId: leaseId || null,
       snapshotId: snapshotId || null,
@@ -233,7 +237,7 @@ export async function execute(input = {}, toolCtx = {}) {
 
   const approvalBundle = buildApprovalBundle({
     actionType: "click-element",
-    risk: "high",
+    risk: approval.risk || "high",
     approval,
     plan,
     target: plan.target,

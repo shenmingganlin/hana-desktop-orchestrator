@@ -18,7 +18,12 @@ export async function execute(input = {}, toolCtx = {}) {
     throw new Error("handle 或 titleContains 至少需要一个");
   }
 
-  const approval = requireRealInputApproval(input, resolvePluginConfig(toolCtx));
+  const config = resolvePluginConfig(toolCtx);
+  const approval = requireRealInputApproval(input, config, {
+    actionType: "focus-window",
+    action: { type: "focus" },
+    target: { handle: input.handle || null, titleContains: input.titleContains || null },
+  });
   const plan = buildActionPlan({
     type: "focus-window",
     risk: "medium",

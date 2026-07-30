@@ -63,7 +63,11 @@ export async function execute(input = {}, toolCtx = {}) {
 
   const config = resolvePluginConfig(toolCtx);
   const securityMode = String(config.securityMode || "normal").toLowerCase();
-  const approval = requireRealInputApproval(input, config);
+  const approval = requireRealInputApproval(input, config, {
+    actionType: "mouse-click-at",
+    action: { type: "real-mouse-click", button, clicks },
+    target: input.expectedWindow || null,
+  });
 
   // SINGLE SOURCE OF TRUTH for the target point. Preview and the real click both
   // read this exact object — they can never diverge.
@@ -75,7 +79,7 @@ export async function execute(input = {}, toolCtx = {}) {
   const guard = evaluateClickSafety({ x: target.x, y: target.y, expected: input.expectedWindow || null });
   const plan = buildActionPlan({
     type: "mouse-click-at",
-    risk: "high",
+    risk: approval.risk || "high",
     target: { x, y, button, clicks },
     action: { type: "real-mouse-click", target: { x, y }, button, clicks },
     notes: [
@@ -93,7 +97,7 @@ export async function execute(input = {}, toolCtx = {}) {
   });
   const approvalBundle = buildApprovalBundle({
     actionType: "mouse-click-at",
-    risk: "high",
+    risk: approval.risk || "sensitive",
     approval,
     plan,
     target: { x, y, button, clicks, expectedWindow: input.expectedWindow || null, guard },
