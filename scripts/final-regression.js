@@ -15,6 +15,7 @@ const syntaxFiles = [
   "lib/action-risk.js",
   "lib/permission-policy.js",
   "lib/control-session.js",
+  "lib/protocol-test-matrix.js",
   "lib/text-input.js",
   "tools/create-control-session.js",
   "tools/inspect-control-session.js",
@@ -77,6 +78,10 @@ const steps = [
   {
     name: "control-session-matrix",
     command: [nodeCommand, ["scripts/control-session-matrix.js"]],
+  },
+  {
+    name: "protocol-test-matrix",
+    command: [nodeCommand, ["-e", "import('./lib/protocol-test-matrix.js').then(({ runProtocolTestMatrix }) => { const result = runProtocolTestMatrix(); console.log(JSON.stringify(result, null, 2)); if (!result.summary.allPassed) process.exit(1); })"]],
   },
   {
     name: "text-input-matrix",
