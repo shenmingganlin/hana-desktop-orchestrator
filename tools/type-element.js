@@ -6,7 +6,7 @@ import { buildActionPlan, requireRealInputApproval, resolvePluginConfig, REAL_IN
 import { findSnapshotElement, loadSnapshot, saveSnapshot } from "../lib/snapshot-store.js";
 import { buildVerificationRequest } from "../lib/verification.js";
 import { consumeControlSession } from "../lib/control-session.js";
-import { buildTextInputFallbackPlan, normalizeTextInputFallback, runTextInputFallback } from "../lib/text-input.js";
+import { buildTextInputFallbackPlan, normalizeTextInputFallback, runTextInputFallback, verifyFocusedElementIdentity } from "../lib/text-input.js";
 import { JSON_RESULT_PREAMBLE, WINDOW_API_SNIPPET } from "../lib/windows.js";
 
 export const name = "type-element";
@@ -238,6 +238,8 @@ export async function execute(input = {}, toolCtx = {}) {
   const actionAllowed = gatedApproval.allowed && approvalBundleSave?.ok === true;
   let setResult = null;
   let fallbackResult = null;
+  let focusResult = null;
+  let focusVerification = null;
   let sessionConsumption = input.sessionId ? { ok: false, pending: true } : { ok: true, skipped: true };
   // Real input requires a verified signature and persisted approval evidence.
   if (actionAllowed && signatureVerified && canSetValue) {
@@ -251,27 +253,41 @@ export async function execute(input = {}, toolCtx = {}) {
       try { saveSnapshot(storedSnapshot); } catch { /* best-effort TTL extension */ }
     }
   } else if (actionAllowed && signatureVerified && !canSetValue && fallbackPlan?.validation?.ok) {
-    sessionConsumption = input.sessionId ? consumeControlSession(input.sessionId) : { ok: true, skipped: true };
-    if (!sessionConsumption.ok) {
-      return JSON.stringify({ dryRun: true, approval: effectiveApproval, plan, fallbackPlan, approvalBundleSave, sessionConsumption }, null, 2);
-    }
     const targetKey = storedElement?.automationId || storedElement?.name || inspectResult.element?.automationId || inspectResult.element?.name || "";
-    const focusResult = targetKey
+    focusResult = targetKey
       ? parseJsonOutput(runUiaHelper("uia-focus", [effectiveHandle, targetKey]), "type-element-focus")
       : { ok: false, error: "fallback-target-key-missing" };
-    fallbackResult = focusResult?.ok
-      ? runTextInputFallback({ handle: effectiveHandle, text: input.text, fallback: effectiveFallback })
-      : { ok: false, action: `${effectiveFallback}-type`, reason: "target-element-focus-failed", focusResult };
-    fallbackResult = { ...fallbackResult, focusResult };
-    if (fallbackResult?.ok !== true && input.sessionId) {
-      // The quota represents an attempted real action, including a helper-level
-      // foreground or clipboard failure. It is intentionally not refunded.
-      sessionConsumption = { ...sessionConsumption, actionAttemptFailed: true };
+    focusVerification = focusResult?.ok
+      ? verifyFocusedElementIdentity({ focusedElement: focusResult.focusedElement, handle: effectiveHandle, targetKey })
+      : { ok: false, reason: "target-element-focus-failed", focusResult };
+
+    if (!focusVerification.ok) {
+      fallbackResult = {
+        ok: false,
+        action: `${effectiveFallback}-type`,
+        reason: "focused-element-identity-verification-failed",
+        focusResult,
+        focusVerification,
+      };
+    } else {
+      sessionConsumption = input.sessionId ? consumeControlSession(input.sessionId) : { ok: true, skipped: true };
+      if (!sessionConsumption.ok) {
+        return JSON.stringify({ dryRun: true, approval: effectiveApproval, plan, fallbackPlan, approvalBundleSave, focusResult, focusVerification, sessionConsumption }, null, 2);
+      }
+      fallbackResult = runTextInputFallback({ handle: effectiveHandle, text: input.text, fallback: effectiveFallback });
+      fallbackResult = { ...fallbackResult, focusResult, focusVerification };
+      if (fallbackResult?.ok !== true && input.sessionId) {
+        // The quota represents an attempted real action, including a helper-level
+        // foreground or clipboard failure. It is intentionally not refunded.
+        sessionConsumption = { ...sessionConsumption, actionAttemptFailed: true };
+      }
     }
   }
 
   // Phase 2: 分层精简输出
-  const executionAttempted = actionAllowed && signatureVerified && (canSetValue || fallbackPlan?.validation?.ok === true);
+  const executionAttempted = actionAllowed && signatureVerified && (
+    canSetValue || (fallbackPlan?.validation?.ok === true && focusVerification?.ok === true)
+  );
   const executionSucceeded = setResult?.ok === true || fallbackResult?.ok === true;
   const isDryRun = !executionAttempted;
   const base = {
@@ -280,6 +296,8 @@ export async function execute(input = {}, toolCtx = {}) {
     signatureCheck,
     plan,
     approvalBundleSave,
+    focusResult,
+    focusVerification,
   };
 
   if (isDryRun) {

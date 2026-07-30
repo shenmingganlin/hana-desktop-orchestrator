@@ -4,6 +4,7 @@ import {
   buildTextInputFallbackPlan,
   normalizeTextInputFallback,
   validateTextInput,
+  verifyFocusedElementIdentity,
 } from "../lib/text-input.js";
 
 const cases = [];
@@ -36,6 +37,23 @@ try {
 
   const clipboardPlan = buildTextInputFallbackPlan({ handle: "123", elementId: "el-4", text: "abc", fallback: "clipboard" });
   check("clipboard-plan-records-restore", clipboardPlan.action.type === "clipboard-assisted-paste" && clipboardPlan.action.clipboardRestored === true, { clipboardPlan });
+
+  const noFocusedElement = verifyFocusedElementIdentity({ handle: "123", targetKey: "editor" });
+  check("focus-verification-requires-focused-element", noFocusedElement.ok === false && noFocusedElement.reason === "focused-element-unavailable", { noFocusedElement });
+
+  const wrongFocusedWindow = verifyFocusedElementIdentity({
+    handle: "123",
+    targetKey: "editor",
+    focusedElement: { nativeWindowHandle: 456, automationId: "editor", hasKeyboardFocus: true },
+  });
+  check("focus-verification-blocks-window-mismatch", wrongFocusedWindow.ok === false && wrongFocusedWindow.reason === "focused-element-window-mismatch", { wrongFocusedWindow });
+
+  const matchingFocusedElement = verifyFocusedElementIdentity({
+    handle: "123",
+    targetKey: "editor",
+    focusedElement: { nativeWindowHandle: 123, automationId: "editor", hasKeyboardFocus: true },
+  });
+  check("focus-verification-matches-target", matchingFocusedElement.ok === true && matchingFocusedElement.matchedBy === "automationId", { matchingFocusedElement });
 
   assert.equal(cases.some((item) => item.passed === false), false);
 } catch (error) {

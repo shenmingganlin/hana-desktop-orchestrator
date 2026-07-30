@@ -20,6 +20,7 @@ const requiredFiles = [
   "scripts/permission-policy-matrix.js",
   "scripts/control-session-matrix.js",
   "scripts/text-input-matrix.js",
+  "scripts/native-safe-smoke.js",
   "routes/widget.js",
   "docs/SAFETY.md",
   "docs/APPROVAL_WIDGET.md",

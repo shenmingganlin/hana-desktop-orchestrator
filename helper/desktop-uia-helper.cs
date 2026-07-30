@@ -54,8 +54,8 @@ class Program
         int max = 80;
         if (args.Length > 2) int.TryParse(args[2], out max);
 
-        AutomationElement root = AutomationElement.FromHandle(hwnd);
-        if (root == null) { Console.Error.WriteLine("{\"error\":\"AutomationElement.FromHandle returned null\"}"); return 1; }
+        AutomationElement root = TryGetRoot(hwnd);
+        if (root == null) return 1;
 
         List<Dictionary<string, object>> elements = new List<Dictionary<string, object>>();
         int count = 0;
@@ -188,8 +188,8 @@ class Program
         int max = 10;
         if (args.Length > 3) int.TryParse(args[3], out max);
 
-        AutomationElement root = AutomationElement.FromHandle(hwnd);
-        if (root == null) { Console.Error.WriteLine("{\"error\":\"AutomationElement.FromHandle returned null\"}"); return 1; }
+        AutomationElement root = TryGetRoot(hwnd);
+        if (root == null) return 1;
 
         List<Dictionary<string, object>> matches = new List<Dictionary<string, object>>();
         int count = 0;
@@ -280,8 +280,8 @@ class Program
         IntPtr hwnd = new IntPtr(raw);
         string target = args[2];
 
-        AutomationElement root = AutomationElement.FromHandle(hwnd);
-        if (root == null) { Console.Error.WriteLine("{\"error\":\"AutomationElement.FromHandle returned null\"}"); return 1; }
+        AutomationElement root = TryGetRoot(hwnd);
+        if (root == null) return 1;
 
         AutomationElement el = FindByNameOrAid(root, target);
         if (el == null) { Console.Error.WriteLine("{\"error\":\"element not found\",\"detail\":\"" + JsonEscape(target) + "\"}"); return 1; }
@@ -344,15 +344,69 @@ class Program
             return Usage("uia-focus <hwnd> <name-or-aid>");
         IntPtr hwnd = new IntPtr(raw);
         string target = args[2];
-        AutomationElement root = AutomationElement.FromHandle(hwnd);
-        if (root == null) { Console.Error.WriteLine("{\"error\":\"AutomationElement.FromHandle returned null\"}"); return 1; }
+        AutomationElement root = TryGetRoot(hwnd);
+        if (root == null) return 1;
         AutomationElement el = FindByNameOrAid(root, target);
         if (el == null) { Console.Error.WriteLine("{\"error\":\"element not found\",\"detail\":\"" + JsonEscape(target) + "\"}"); return 1; }
         try
         {
             if (!el.Current.IsEnabled || el.Current.IsOffscreen) { Console.Error.WriteLine("{\"error\":\"element-not-focusable\"}"); return 1; }
             el.SetFocus();
-            Console.WriteLine("{\"ok\":true,\"action\":\"uia-focus\",\"target\":\"" + JsonEscape(target) + "\"}");
+
+            // SetFocus succeeds at the API boundary; verify the actual focused UIA element before returning.
+            AutomationElement focused = AutomationElement.FocusedElement;
+            if (focused == null)
+            {
+                Console.WriteLine("{\"ok\":false,\"error\":\"focused-element-unavailable\"}");
+                return 0;
+            }
+
+            int[] targetRuntimeIds;
+            int[] focusedRuntimeIds;
+            try
+            {
+                targetRuntimeIds = el.GetRuntimeId();
+                focusedRuntimeIds = focused.GetRuntimeId();
+            }
+            catch (Exception identityException)
+            {
+                Console.WriteLine("{\"ok\":false,\"error\":\"runtime-id-unavailable\",\"detail\":\"" + JsonEscape(identityException.Message) + "\"}");
+                return 0;
+            }
+
+            if (!RuntimeIdsEqual(targetRuntimeIds, focusedRuntimeIds))
+            {
+                Console.WriteLine("{\"ok\":false,\"error\":\"focused-element-runtime-id-mismatch\"}");
+                return 0;
+            }
+
+            AutomationElement.AutomationElementInformation current = focused.Current;
+            List<string> runtimeId = new List<string>();
+            try
+            {
+                int[] ids = focused.GetRuntimeId();
+                if (ids != null)
+                {
+                    foreach (int id in ids) runtimeId.Add(id.ToString());
+                }
+            }
+            catch { }
+
+            Dictionary<string, object> identity = new Dictionary<string, object>();
+            identity["nativeWindowHandle"] = current.NativeWindowHandle;
+            identity["name"] = current.Name ?? "";
+            identity["automationId"] = current.AutomationId ?? "";
+            identity["controlType"] = current.ControlType == null ? "" : current.ControlType.ProgrammaticName;
+            identity["frameworkId"] = current.FrameworkId ?? "";
+            identity["hasKeyboardFocus"] = current.HasKeyboardFocus;
+            identity["runtimeId"] = runtimeId;
+
+            Dictionary<string, object> result = new Dictionary<string, object>();
+            result["ok"] = true;
+            result["action"] = "uia-focus";
+            result["target"] = target;
+            result["focusedElement"] = identity;
+            Console.WriteLine(JsonSerialize(result));
             return 0;
         }
         catch (Exception ex)
@@ -373,8 +427,8 @@ class Program
         Console.InputEncoding = Encoding.UTF8;
         string text = Console.In.ReadToEnd();
 
-        AutomationElement root = AutomationElement.FromHandle(hwnd);
-        if (root == null) { Console.Error.WriteLine("{\"error\":\"AutomationElement.FromHandle returned null\"}"); return 1; }
+        AutomationElement root = TryGetRoot(hwnd);
+        if (root == null) return 1;
 
         AutomationElement el = FindByNameOrAid(root, target);
         if (el == null) { Console.Error.WriteLine("{\"error\":\"element not found\",\"detail\":\"" + JsonEscape(target) + "\"}"); return 1; }
@@ -391,6 +445,30 @@ class Program
     }
 
     // ── Helpers ────────────────────────────────────────────────
+    static AutomationElement TryGetRoot(IntPtr hwnd)
+    {
+        try
+        {
+            return AutomationElement.FromHandle(hwnd);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine("{\"error\":\"invalid-window-handle\",\"detail\":\"" + JsonEscape(ex.Message) + "\"}");
+            return null;
+        }
+    }
+
+    static bool RuntimeIdsEqual(int[] left, int[] right)
+    {
+        if (left == null || right == null || left.Length == 0 || right.Length == 0 || left.Length != right.Length)
+            return false;
+        for (int i = 0; i < left.Length; i++)
+        {
+            if (left[i] != right[i]) return false;
+        }
+        return true;
+    }
+
     static AutomationElement FindByNameOrAid(AutomationElement root, string target)
     {
         PropertyCondition nameCond = new PropertyCondition(AutomationElement.NameProperty, target, PropertyConditionFlags.IgnoreCase);
