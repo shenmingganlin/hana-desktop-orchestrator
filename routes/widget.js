@@ -490,6 +490,7 @@ function renderClientScript() {
       nonce: Math.random().toString(16).slice(2) + Date.now().toString(16),
       actionType: bundle.actionType || null,
       risk: bundle.risk || null,
+      approvalBundleHash: bundle.bundleHash || null,
       target: bundle.target || null,
       checks: {
         bundle: approvalState.bundle,

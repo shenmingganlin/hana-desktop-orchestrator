@@ -2,7 +2,7 @@
 
 `approvalBundle` is the data protocol for a future visual approval panel.
 
-It does not execute any desktop action. It only packages the materials needed for review.
+It does not execute any desktop action. It only packages the materials needed for review. Each generated bundle carries a SHA-256 `bundleHash`; approval tokens copy this value as `approvalBundleHash` so preflight can bind the token to the current live bundle.
 
 ## Contents
 
@@ -16,6 +16,7 @@ An approval bundle includes:
 - `previewRequests`: suggested visual tools to call
 - `capability`: UIA pattern availability
 - `safety`: explicit safety requirements
+- `bundleHash`: stable SHA-256 digest of the bundle contents, excluding the `bundleHash` field itself
 
 ## Preview Requests
 

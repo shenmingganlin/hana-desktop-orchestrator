@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Approval tokens now bind to the current live approval bundle through `approvalBundleHash` / `bundleHash`; missing, stale, changed, or mismatched bundles are blocked by preflight and covered by fixture regression cases.
+
 ## 0.2.3 - 2026-07-29
 
 ### Added
