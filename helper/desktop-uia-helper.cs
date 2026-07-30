@@ -36,6 +36,7 @@ class Program
             case "uia-tree":   return UiaTree(args);
             case "uia-find":   return UiaFind(args);
             case "uia-click":  return UiaClick(args);
+            case "uia-focus":  return UiaFocus(args);
             case "uia-type":   return UiaType(args);
             default:
                 Console.Error.WriteLine("{\"error\":\"unknown verb\",\"detail\":\"" + JsonEscape(verb) + "\"}");
@@ -335,15 +336,42 @@ class Program
         Console.WriteLine("{\"ok\":true,\"action\":\"" + action + "\",\"target\":\"" + JsonEscape(target) + "\",\"mode\":\"" + mode + "\"}");
     }
 
+    // ── uia-focus <hwnd> <name-or-aid> ─────────────────────────
+    static int UiaFocus(string[] args)
+    {
+        long raw;
+        if (args.Length < 3 || !long.TryParse(args[1], out raw))
+            return Usage("uia-focus <hwnd> <name-or-aid>");
+        IntPtr hwnd = new IntPtr(raw);
+        string target = args[2];
+        AutomationElement root = AutomationElement.FromHandle(hwnd);
+        if (root == null) { Console.Error.WriteLine("{\"error\":\"AutomationElement.FromHandle returned null\"}"); return 1; }
+        AutomationElement el = FindByNameOrAid(root, target);
+        if (el == null) { Console.Error.WriteLine("{\"error\":\"element not found\",\"detail\":\"" + JsonEscape(target) + "\"}"); return 1; }
+        try
+        {
+            if (!el.Current.IsEnabled || el.Current.IsOffscreen) { Console.Error.WriteLine("{\"error\":\"element-not-focusable\"}"); return 1; }
+            el.SetFocus();
+            Console.WriteLine("{\"ok\":true,\"action\":\"uia-focus\",\"target\":\"" + JsonEscape(target) + "\"}");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine("{\"error\":\"focus-exception\",\"detail\":\"" + JsonEscape(ex.Message) + "\"}");
+            return 1;
+        }
+    }
+
     // ── uia-type <hwnd> <name-or-aid> <text> ───────────────────
     static int UiaType(string[] args)
     {
         long raw;
-        if (args.Length < 4 || !long.TryParse(args[1], out raw))
-            return Usage("uia-type <hwnd> <name-or-aid> <text>");
+        if (args.Length < 3 || !long.TryParse(args[1], out raw))
+            return Usage("uia-type <hwnd> <name-or-aid>");
         IntPtr hwnd = new IntPtr(raw);
         string target = args[2];
-        string text = args[3];
+        Console.InputEncoding = Encoding.UTF8;
+        string text = Console.In.ReadToEnd();
 
         AutomationElement root = AutomationElement.FromHandle(hwnd);
         if (root == null) { Console.Error.WriteLine("{\"error\":\"AutomationElement.FromHandle returned null\"}"); return 1; }

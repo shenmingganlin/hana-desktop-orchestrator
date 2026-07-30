@@ -15,6 +15,7 @@ const syntaxFiles = [
   "lib/action-risk.js",
   "lib/permission-policy.js",
   "lib/control-session.js",
+  "lib/text-input.js",
   "tools/create-control-session.js",
   "tools/inspect-control-session.js",
   "tools/revoke-control-session.js",
@@ -32,6 +33,7 @@ const syntaxFiles = [
   "tools/mouse-wheel.js",
   "tools/click-element.js",
   "tools/type-element.js",
+  "scripts/text-input-matrix.js",
   "tools/focus-window.js",
   "tools/manage-window.js",
   "tools/protected-click.js",
@@ -74,6 +76,10 @@ const steps = [
   {
     name: "control-session-matrix",
     command: [nodeCommand, ["scripts/control-session-matrix.js"]],
+  },
+  {
+    name: "text-input-matrix",
+    command: [nodeCommand, ["scripts/text-input-matrix.js"]],
   },
 ];
 

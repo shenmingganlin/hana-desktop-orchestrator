@@ -55,6 +55,10 @@ class Program
                     return MouseDrag(args);
                 case "mouse-wheel":
                     return MouseWheel(args);
+                case "keyboard-type":
+                    return KeyboardType(args);
+                case "clipboard-type":
+                    return ClipboardType(args);
                 case "window-info":
                     return WindowInfo(args);
                 case "focus":
@@ -672,6 +676,232 @@ class Program
     }
 
     // ═══════════════════════════════════════════════════════════════
+    //  keyboard-type  —  guarded Unicode SendInput to the focused target
+    //  Args: <hwnd>; text is read from stdin to avoid command-line leakage.
+    //
+    // This verb never focuses a window. It checks that the target remains
+    // foreground before every logical character, so focus drift fails closed.
+    // ═══════════════════════════════════════════════════════════════
+    static int KeyboardType(string[] args)
+    {
+        if (args.Length < 2 || !long.TryParse(args[1], out long rawHandle))
+            return Usage("keyboard-type <hwnd>");
+        Console.InputEncoding = Encoding.UTF8;
+        string text = Console.In.ReadToEnd();
+        if (text.Length > 12000)
+        {
+            Console.Error.WriteLine("{\"error\":\"text-too-long-for-keyboard-fallback\"}");
+            return 1;
+        }
+
+        IntPtr hwnd = (IntPtr)rawHandle;
+        if (!Win32.IsWindow(hwnd)) return FailInput("keyboard-type", "target-window-not-found", rawHandle, 0);
+
+        int sent = 0;
+        foreach (char ch in text.Replace("\r\n", "\n").Replace('\r', '\n'))
+        {
+            if (!IsTargetForeground(hwnd))
+                return FailInput("keyboard-type", "target-window-not-foreground", rawHandle, sent);
+            bool ok = ch == '\n' ? SendVirtualKey(0x0D) : SendUnicodeChar(ch);
+            if (!ok) return FailInput("keyboard-type", "send-input-failed", rawHandle, sent);
+            sent++;
+        }
+
+        Console.WriteLine(Serialize(new { ok = true, action = "keyboard-type", handle = rawHandle, textLength = text.Length, sentCharacters = sent, foregroundVerified = true }));
+        return 0;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  clipboard-type  —  guarded clipboard-assisted paste
+    //  Args: <hwnd>; text is read from stdin to avoid command-line leakage.
+    //
+    // Only CF_UNICODETEXT is preserved. The clipboard is restored only when
+    // its sequence number still matches the value written by this operation;
+    // an intervening user/application clipboard change is never overwritten.
+    // ═══════════════════════════════════════════════════════════════
+    static int ClipboardType(string[] args)
+    {
+        if (args.Length < 2 || !long.TryParse(args[1], out long rawHandle))
+            return Usage("clipboard-type <hwnd>");
+        Console.InputEncoding = Encoding.UTF8;
+        string text = Console.In.ReadToEnd();
+        if (text.Length > 24000)
+        {
+            Console.Error.WriteLine("{\"error\":\"text-too-long-for-clipboard-fallback\"}");
+            return 1;
+        }
+
+        IntPtr hwnd = (IntPtr)rawHandle;
+        if (!Win32.IsWindow(hwnd)) return FailInput("clipboard-type", "target-window-not-found", rawHandle, 0);
+        if (!IsTargetForeground(hwnd)) return FailInput("clipboard-type", "target-window-not-foreground", rawHandle, 0);
+
+        if (!ReadClipboardText(hwnd, out bool previousHasText, out string previousText))
+            return FailInput("clipboard-type", "clipboard-read-failed", rawHandle, 0);
+        if (!SetClipboardText(hwnd, text))
+        {
+            if (previousHasText) SetClipboardText(hwnd, previousText);
+            else ClearClipboard(hwnd);
+            return FailInput("clipboard-type", "clipboard-write-failed", rawHandle, 0);
+        }
+
+        uint writtenSequence = Win32.GetClipboardSequenceNumber();
+        bool pasteSent = false;
+        bool restored = false;
+        string failure = null;
+        try
+        {
+            if (!IsTargetForeground(hwnd))
+            {
+                failure = "target-window-lost-foreground-before-paste";
+            }
+            else
+            {
+                pasteSent = SendCtrlV();
+                if (!pasteSent) failure = "send-input-paste-failed";
+                System.Threading.Thread.Sleep(60);
+            }
+        }
+        finally
+        {
+            if (Win32.GetClipboardSequenceNumber() == writtenSequence)
+            {
+                restored = previousHasText ? SetClipboardText(hwnd, previousText) : ClearClipboard(hwnd);
+            }
+        }
+
+        if (!pasteSent || !restored)
+        {
+            Console.WriteLine(Serialize(new { ok = false, action = "clipboard-type", handle = rawHandle, textLength = text.Length, pasteSent, restored, clipboardRestored = restored, failure = failure ?? (restored ? "paste-failed" : "clipboard-changed-not-restored") }));
+            return 1;
+        }
+
+        Console.WriteLine(Serialize(new { ok = true, action = "clipboard-type", handle = rawHandle, textLength = text.Length, pasteSent = true, clipboardRestored = true, preservedFormat = "CF_UNICODETEXT" }));
+        return 0;
+    }
+
+    static bool IsTargetForeground(IntPtr hwnd)
+    {
+        IntPtr foreground = Win32.GetForegroundWindow();
+        if (foreground == hwnd) return true;
+        IntPtr root = Win32.GetAncestor(hwnd, 2);
+        return root != IntPtr.Zero && foreground == root;
+    }
+
+    static bool SendUnicodeChar(char ch)
+    {
+        var inputs = new[]
+        {
+            Win32.Input.Unicode(ch, false),
+            Win32.Input.Unicode(ch, true),
+        };
+        return Win32.SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<Win32.Input>()) == inputs.Length;
+    }
+
+    static bool SendVirtualKey(ushort key)
+    {
+        var inputs = new[]
+        {
+            Win32.Input.VirtualKey(key, false),
+            Win32.Input.VirtualKey(key, true),
+        };
+        return Win32.SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<Win32.Input>()) == inputs.Length;
+    }
+
+    static bool SendCtrlV()
+    {
+        var inputs = new[]
+        {
+            Win32.Input.VirtualKey(0x11, false),
+            Win32.Input.VirtualKey(0x56, false),
+            Win32.Input.VirtualKey(0x56, true),
+            Win32.Input.VirtualKey(0x11, true),
+        };
+        return Win32.SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<Win32.Input>()) == inputs.Length;
+    }
+
+    static bool ReadClipboardText(IntPtr owner, out bool hasText, out string text)
+    {
+        hasText = false;
+        text = "";
+        if (!OpenClipboardWithRetry(owner)) return false;
+        try
+        {
+            uint format = 0;
+            bool hasUnicodeText = false;
+            while ((format = Win32.EnumClipboardFormats(format)) != 0)
+            {
+                if (format == 13) { hasUnicodeText = true; continue; }
+                if (format == 1) continue; // CF_TEXT is still plain text
+                return false; // refuse to destroy rich or binary clipboard data
+            }
+            if (!hasUnicodeText && Win32.GetClipboardData(1) == IntPtr.Zero) return true;
+            uint textFormat = hasUnicodeText ? 13u : 1u;
+            IntPtr data = Win32.GetClipboardData(textFormat);
+            if (data == IntPtr.Zero) return true;
+            IntPtr locked = Win32.GlobalLock(data);
+            if (locked == IntPtr.Zero) return false;
+            try
+            {
+                text = textFormat == 13
+                    ? Marshal.PtrToStringUni(locked) ?? ""
+                    : Marshal.PtrToStringAnsi(locked) ?? "";
+                hasText = true;
+                return true;
+            }
+            finally { Win32.GlobalUnlock(data); }
+        }
+        finally { Win32.CloseClipboard(); }
+    }
+
+    static bool SetClipboardText(IntPtr owner, string text)
+    {
+        if (!OpenClipboardWithRetry(owner)) return false;
+        IntPtr global = IntPtr.Zero;
+        try
+        {
+            if (!Win32.EmptyClipboard()) return false;
+            byte[] bytes = Encoding.Unicode.GetBytes(text + "\0");
+            global = Win32.GlobalAlloc(0x0002, (UIntPtr)bytes.Length); // GMEM_MOVEABLE
+            if (global == IntPtr.Zero) return false;
+            IntPtr locked = Win32.GlobalLock(global);
+            if (locked == IntPtr.Zero) return false;
+            try { Marshal.Copy(bytes, 0, locked, bytes.Length); }
+            finally { Win32.GlobalUnlock(global); }
+            if (Win32.SetClipboardData(13, global) == IntPtr.Zero) return false;
+            global = IntPtr.Zero; // clipboard owns the allocation
+            return true;
+        }
+        finally
+        {
+            if (global != IntPtr.Zero) Win32.GlobalFree(global);
+            Win32.CloseClipboard();
+        }
+    }
+
+    static bool ClearClipboard(IntPtr owner)
+    {
+        if (!OpenClipboardWithRetry(owner)) return false;
+        try { return Win32.EmptyClipboard(); }
+        finally { Win32.CloseClipboard(); }
+    }
+
+    static bool OpenClipboardWithRetry(IntPtr owner)
+    {
+        for (int i = 0; i < 5; i++)
+        {
+            if (Win32.OpenClipboard(owner)) return true;
+            System.Threading.Thread.Sleep(20);
+        }
+        return false;
+    }
+
+    static int FailInput(string action, string reason, long handle, int sent)
+    {
+        Console.WriteLine(Serialize(new { ok = false, action, handle, reason, sentCharacters = sent }));
+        return 1;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     //  window-info  —  detailed info about a window
     // ═══════════════════════════════════════════════════════════════
     static int WindowInfo(string[] args)
@@ -876,6 +1106,12 @@ class Program
     //  Helpers
     // ═══════════════════════════════════════════════════════════════
 
+    static int Usage(string detail)
+    {
+        Console.Error.WriteLine($"{{\"error\":\"usage\",\"detail\":\"{EscapeJson(detail)}\"}}");
+        return 1;
+    }
+
     static void SetDpiAware()
     {
         try { Win32.SetProcessDpiAwarenessContext((IntPtr)(-4)); } catch { }
@@ -961,6 +1197,45 @@ internal static class Win32
     public static extern IntPtr GetForegroundWindow();
 
     [DllImport("user32.dll")]
+    public static extern IntPtr GetAncestor(IntPtr hWnd, uint gaFlags);
+
+    [DllImport("user32.dll")]
+    public static extern uint SendInput(uint nInputs, Input[] pInputs, int cbSize);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool OpenClipboard(IntPtr hWndNewOwner);
+
+    [DllImport("user32.dll")]
+    public static extern bool CloseClipboard();
+
+    [DllImport("user32.dll")]
+    public static extern bool EmptyClipboard();
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetClipboardData(uint uFormat);
+
+    [DllImport("user32.dll")]
+    public static extern uint EnumClipboardFormats(uint format);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr SetClipboardData(uint uFormat, IntPtr hMem);
+
+    [DllImport("user32.dll")]
+    public static extern uint GetClipboardSequenceNumber();
+
+    [DllImport("kernel32.dll")]
+    public static extern IntPtr GlobalAlloc(uint uFlags, UIntPtr dwBytes);
+
+    [DllImport("kernel32.dll")]
+    public static extern IntPtr GlobalLock(IntPtr hMem);
+
+    [DllImport("kernel32.dll")]
+    public static extern bool GlobalUnlock(IntPtr hMem);
+
+    [DllImport("kernel32.dll")]
+    public static extern IntPtr GlobalFree(IntPtr hMem);
+
+    [DllImport("user32.dll")]
     public static extern bool ClientToScreen(IntPtr hWnd, ref POINT point);
 
     [DllImport("user32.dll")]
@@ -1000,5 +1275,53 @@ internal static class Win32
     {
         public int X;
         public int Y;
+    }
+
+    [StructLayout(LayoutKind.Explicit, Size = 40)]
+    public struct Input
+    {
+        [FieldOffset(0)] public uint type;
+        [FieldOffset(8)] public InputUnion union;
+
+        public static Input Unicode(char value, bool keyUp)
+        {
+            return new Input
+            {
+                type = 1,
+                union = new InputUnion
+                {
+                    keyboard = new KeyboardInput { wVk = 0, wScan = value, dwFlags = 0x0004u | (keyUp ? 0x0002u : 0u) }
+                }
+            };
+        }
+
+        public static Input VirtualKey(ushort key, bool keyUp)
+        {
+            return new Input
+            {
+                type = 1,
+                union = new InputUnion
+                {
+                    keyboard = new KeyboardInput { wVk = key, wScan = 0, dwFlags = keyUp ? 0x0002u : 0u }
+                }
+            };
+        }
+    }
+
+    [StructLayout(LayoutKind.Explicit, Size = 32)]
+    public struct InputUnion
+    {
+        [FieldOffset(0)] public KeyboardInput keyboard;
+        [FieldOffset(24)] public long padding;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct KeyboardInput
+    {
+        public ushort wVk;
+        public ushort wScan;
+        public uint dwFlags;
+        public uint time;
+        public IntPtr dwExtraInfo;
     }
 }

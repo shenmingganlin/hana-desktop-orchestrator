@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "desktop-orchestrator",
   "name": "Desktop Orchestrator",
-  "version": "0.3.0-alpha.1",
+  "version": "0.3.0-alpha.2",
   "description": "A powerful but guarded Windows desktop control platform for HanaAgent. Provides desktop snapshots, window targeting, action planning, and protected input execution.",
   "author": {
     "name": "Ganlin & ChatGPT"
@@ -77,7 +77,13 @@
           "type": "boolean",
           "default": false,
           "title": "允许键盘输入",
-          "description": "开启后允许向目标窗口注入键盘输入（类型、快捷键等）。单独控制，不与鼠标输入共享同一个开关。"
+          "description": "开启后允许在 UIA 元素先获得焦点且目标窗口保持前台时使用 Unicode 键盘回退。单独控制，不与鼠标输入共享同一个开关。"
+        },
+        "allowClipboardInput": {
+          "type": "boolean",
+          "default": false,
+          "title": "允许剪贴板回退输入",
+          "description": "开启后允许使用受保护的纯文本剪贴板粘贴回退。富文本或其他剪贴板格式会直接拒绝，且只在未发生外部剪贴板变化时尝试恢复。"
         }
       }
     }

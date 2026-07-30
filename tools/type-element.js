@@ -1,15 +1,16 @@
 import { buildApprovalBundle } from "../lib/approval-bundle.js";
 import { saveApprovalBundle } from "../lib/approval-store.js";
 import { compareElementSignature } from "../lib/element-signature.js";
-import { parseJsonOutput, runUiaHelper } from "../lib/powershell.js";
+import { parseJsonOutput, runHelper, runUiaHelper } from "../lib/powershell.js";
 import { buildActionPlan, requireRealInputApproval, resolvePluginConfig, REAL_INPUT_CONFIRMATION } from "../lib/safety.js";
 import { findSnapshotElement, loadSnapshot, saveSnapshot } from "../lib/snapshot-store.js";
 import { buildVerificationRequest } from "../lib/verification.js";
 import { consumeControlSession } from "../lib/control-session.js";
+import { buildTextInputFallbackPlan, normalizeTextInputFallback, runTextInputFallback } from "../lib/text-input.js";
 import { JSON_RESULT_PREAMBLE, WINDOW_API_SNIPPET } from "../lib/windows.js";
 
 export const name = "type-element";
-export const description = "按 ui-tree 的 elementId 生成文本输入计划。支持 leaseId + snapshotId 自动恢复窗口和签名；真实写入仅使用 UIA ValuePattern.SetValue。";
+export const description = "按 ui-tree 的 elementId 生成文本输入计划。优先使用 UIA ValuePattern；不可用时可在显式权限和前台窗口守卫下使用 Unicode 键盘或剪贴板回退。";
 export const parameters = {
   type: "object",
   required: ["elementId", "text"],
@@ -24,7 +25,8 @@ export const parameters = {
     expectedName: { type: "string", description: "可选。用于防止元素漂移的名称校验；未提供时会尝试从 lease 快照恢复" },
     sessionId: { type: "string", description: "可选。由 create-control-session 返回的控制会话 ID。" },
     dryRun: { type: "boolean", default: true, description: "是否只返回计划，不执行写入" },
-    confirmation: { type: "string", description: `真实 UIA 文本写入确认短语：${REAL_INPUT_CONFIRMATION}` },
+    fallback: { type: "string", enum: ["keyboard", "clipboard"], default: "keyboard", description: "ValuePattern 不可用时的回退方式。keyboard 使用 Unicode SendInput；clipboard 使用受保护的剪贴板粘贴并尝试恢复原文本。" },
+    confirmation: { type: "string", description: `真实文本输入确认短语：${REAL_INPUT_CONFIRMATION}` },
   },
 };
 
@@ -79,9 +81,27 @@ export async function execute(input = {}, toolCtx = {}) {
   const effectiveSignature = String(input.elementSignature || storedElement?.signature || "").trim();
   const effectiveExpectedName = input.expectedName ?? storedElement?.name ?? "";
   const config = resolvePluginConfig(toolCtx);
+  const requestedFallback = normalizeTextInputFallback(input.fallback, "keyboard");
+  const windowInfo = input.sessionId && effectiveHandle
+    ? (() => {
+        const result = runHelper("window-info", [effectiveHandle]);
+        if (!result.ok || !result.stdout) return null;
+        try { return JSON.parse(result.stdout); } catch { return null; }
+      })()
+    : null;
+  const effectiveProcessName = String(windowInfo?.processName || "").trim();
+  const targetContext = {
+    leaseId,
+    snapshotId,
+    handle: effectiveHandle || null,
+    processName: effectiveProcessName || null,
+    elementId,
+    expectedName: effectiveExpectedName || null,
+    elementSignature: effectiveSignature || null,
+  };
   const approval = requireRealInputApproval(input, config, {
     actionType: "type-element",
-    target: { leaseId, snapshotId, handle: effectiveHandle || null, elementId, expectedName: effectiveExpectedName || null, elementSignature: effectiveSignature || null },
+    target: targetContext,
   });
 
   const helperTreeResult = parseJsonOutput(
@@ -139,18 +159,31 @@ export async function execute(input = {}, toolCtx = {}) {
 
   const capability = inspectResult.capability || {};
   const canSetValue = capability.supportsValue === true && capability.isReadOnly !== true;
-  const effectiveCapability = canSetValue ? capability : { ...capability, fallback: "clipboard" };
+  const effectiveFallback = requestedFallback;
+  const effectiveCapability = canSetValue ? capability : { ...capability, fallback: effectiveFallback };
   const effectiveApproval = canSetValue
     ? approval
     : requireRealInputApproval(input, config, {
         actionType: "type-element",
-        target: { leaseId, snapshotId, handle: effectiveHandle || null, elementId, expectedName: effectiveExpectedName || null, elementSignature: effectiveSignature || null },
+        target: targetContext,
         capability: effectiveCapability,
       });
+  const fallbackConfigKey = effectiveFallback === "clipboard" ? "allowClipboardInput" : "allowKeyboardInput";
+  const fallbackConfigAllowed = canSetValue || config[fallbackConfigKey] === true;
+  const gatedApproval = !canSetValue && !fallbackConfigAllowed
+    ? { ...effectiveApproval, allowed: false, dryRun: true, requiresConfirmation: false, reason: `${fallbackConfigKey} 未开启，${effectiveFallback} fallback 被阻止` }
+    : effectiveApproval;
+  const fallbackPlan = canSetValue ? null : buildTextInputFallbackPlan({
+    handle: effectiveHandle,
+    elementId,
+    text: input.text,
+    fallback: effectiveFallback,
+    target: { leaseId: leaseId || null, snapshotId: snapshotId || null, expectedName: effectiveExpectedName || null, elementSignature: effectiveSignature || null },
+  });
 
   const plan = buildActionPlan({
     type: "type-element",
-    risk: effectiveApproval.risk || "high",
+    risk: gatedApproval.risk || "high",
     target: {
       leaseId: leaseId || null,
       snapshotId: snapshotId || null,
@@ -161,15 +194,19 @@ export async function execute(input = {}, toolCtx = {}) {
       elementSignature: effectiveSignature || signatureCheck.actualSignature,
     },
     action: {
-      type: canSetValue ? "uia-setvalue" : "clipboard-assisted-typing-plan-only",
+      type: canSetValue ? "uia-setvalue" : fallbackPlan.action.type,
       textLength: input.text.length,
       valuePatternAvailable: capability.supportsValue === true,
       isReadOnly: capability.isReadOnly === true,
+      fallback: canSetValue ? null : effectiveFallback,
+      foregroundGuard: canSetValue ? false : true,
+      clipboardRestored: canSetValue ? null : effectiveFallback === "clipboard",
     },
     notes: [
       storedSnapshot ? "Target restored from lease snapshot." : "Target resolved from direct input or foreground window.",
-      effectiveApproval.allowed ? "Real UIA SetValue approved." : `Real action blocked: ${effectiveApproval.reason}`,
-      canSetValue ? "ValuePattern.SetValue is available." : "ValuePattern.SetValue is unavailable or read-only; keyboard/clipboard fallback is plan-only.",
+      gatedApproval.allowed ? "Real text input approved." : `Real action blocked: ${gatedApproval.reason}`,
+      canSetValue ? "ValuePattern.SetValue is available." : `ValuePattern.SetValue is unavailable or read-only; ${effectiveFallback} fallback is available only after its separate capability and foreground gates pass.`,
+      ...(!canSetValue ? fallbackPlan.notes : []),
       signatureVerified
         ? "Element signature guard passed (verified against snapshot) before any write."
         : "Element signature NOT verified (no expected signature supplied); real write blocked, plan-only.",
@@ -188,36 +225,57 @@ export async function execute(input = {}, toolCtx = {}) {
 
   const approvalBundle = buildApprovalBundle({
     actionType: "type-element",
-    risk: effectiveApproval.risk || "high",
-    approval: effectiveApproval,
+    risk: gatedApproval.risk || "high",
+    approval: gatedApproval,
     plan,
     target: plan.target,
     verificationRequest,
-    capability,
-    safetyNotes: ["Real text input remains blocked unless all real-input gates pass."],
+    capability: effectiveCapability,
+    safetyNotes: ["Real text input remains blocked unless all real-input, focus, signature, session, and fallback gates pass."],
   });
 
   const approvalBundleSave = saveApprovalBundle(approvalBundle, { source: "type-element" });
-  const actionAllowed = effectiveApproval.allowed && approvalBundleSave?.ok === true;
+  const actionAllowed = gatedApproval.allowed && approvalBundleSave?.ok === true;
   let setResult = null;
+  let fallbackResult = null;
   let sessionConsumption = input.sessionId ? { ok: false, pending: true } : { ok: true, skipped: true };
-  // Hard gate: real UIA SetValue requires a VERIFIED signature and a persisted approval bundle.
+  // Real input requires a verified signature and persisted approval evidence.
   if (actionAllowed && signatureVerified && canSetValue) {
     sessionConsumption = input.sessionId ? consumeControlSession(input.sessionId) : { ok: true, skipped: true };
     if (!sessionConsumption.ok) {
       return JSON.stringify({ dryRun: true, approval: effectiveApproval, plan, approvalBundleSave, sessionConsumption }, null, 2);
     }
-    const targetKey = storedElement?.automationId || storedElement?.name || String(targetIndex);
-    setResult = parseJsonOutput(runUiaHelper("uia-type", [effectiveHandle, targetKey, input.text]), "type-element");
+    const targetKey = storedElement?.automationId || storedElement?.name || inspectResult.element?.automationId || inspectResult.element?.name || String(targetIndex);
+    setResult = parseJsonOutput(runUiaHelper("uia-type", [effectiveHandle, targetKey], { input: input.text }), "type-element");
     if (setResult?.ok && storedSnapshot) {
       try { saveSnapshot(storedSnapshot); } catch { /* best-effort TTL extension */ }
+    }
+  } else if (actionAllowed && signatureVerified && !canSetValue && fallbackPlan?.validation?.ok) {
+    sessionConsumption = input.sessionId ? consumeControlSession(input.sessionId) : { ok: true, skipped: true };
+    if (!sessionConsumption.ok) {
+      return JSON.stringify({ dryRun: true, approval: effectiveApproval, plan, fallbackPlan, approvalBundleSave, sessionConsumption }, null, 2);
+    }
+    const targetKey = storedElement?.automationId || storedElement?.name || inspectResult.element?.automationId || inspectResult.element?.name || "";
+    const focusResult = targetKey
+      ? parseJsonOutput(runUiaHelper("uia-focus", [effectiveHandle, targetKey]), "type-element-focus")
+      : { ok: false, error: "fallback-target-key-missing" };
+    fallbackResult = focusResult?.ok
+      ? runTextInputFallback({ handle: effectiveHandle, text: input.text, fallback: effectiveFallback })
+      : { ok: false, action: `${effectiveFallback}-type`, reason: "target-element-focus-failed", focusResult };
+    fallbackResult = { ...fallbackResult, focusResult };
+    if (fallbackResult?.ok !== true && input.sessionId) {
+      // The quota represents an attempted real action, including a helper-level
+      // foreground or clipboard failure. It is intentionally not refunded.
+      sessionConsumption = { ...sessionConsumption, actionAttemptFailed: true };
     }
   }
 
   // Phase 2: 分层精简输出
-  const isDryRun = !actionAllowed;
+  const executionAttempted = actionAllowed && signatureVerified && (canSetValue || fallbackPlan?.validation?.ok === true);
+  const executionSucceeded = setResult?.ok === true || fallbackResult?.ok === true;
+  const isDryRun = !executionAttempted;
   const base = {
-    ok: approvalBundleSave?.ok === true && (!isDryRun || effectiveApproval.dryRun === undefined),
+    ok: approvalBundleSave?.ok === true && (isDryRun ? true : executionSucceeded),
     element: inspectResult?.element,
     signatureCheck,
     plan,
@@ -225,19 +283,21 @@ export async function execute(input = {}, toolCtx = {}) {
   };
 
   if (isDryRun) {
-    return JSON.stringify({ ...base, approval: effectiveApproval, dryRun: true, resultPhase: "pre-action-inspect", result: inspectResult }, null, 2);
+    return JSON.stringify({ ...base, approval: gatedApproval, dryRun: true, resultPhase: "pre-action-inspect", result: inspectResult, fallbackPlan }, null, 2);
   }
 
   return JSON.stringify({
     ...base,
-    approval: effectiveApproval,
+    approval: gatedApproval,
     dryRun: false,
     leaseId: leaseId || null,
     snapshotId: snapshotId || null,
     capability,
-    resultPhase: setResult ? "setvalue-complete" : "pre-action-inspect",
+    resultPhase: setResult ? "setvalue-complete" : fallbackResult ? `${effectiveFallback}-fallback-complete` : "pre-action-inspect",
     result: inspectResult,
     setResult,
+    fallbackPlan,
+    fallbackResult,
     sessionConsumption,
   }, null, 2);
 }

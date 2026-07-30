@@ -73,8 +73,7 @@ Potential first real-control scope:
 
 - minimal UIA Invoke only
 - no raw mouse movement
-- no keyboard typing
-- no clipboard fallback
+- keyboard and clipboard fallback remain separately gated and are limited to `type-element`
 - no focus/window switching unless separately gated
 - mandatory fresh lease verification
 - mandatory immediate signature verification

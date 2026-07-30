@@ -19,6 +19,7 @@ const requiredFiles = [
   "scripts/final-regression.js",
   "scripts/permission-policy-matrix.js",
   "scripts/control-session-matrix.js",
+  "scripts/text-input-matrix.js",
   "routes/widget.js",
   "docs/SAFETY.md",
   "docs/APPROVAL_WIDGET.md",
@@ -29,6 +30,7 @@ const requiredFiles = [
   "lib/action-risk.js",
   "lib/permission-policy.js",
   "lib/control-session.js",
+  "lib/text-input.js",
   "lib/powershell.js",
   "lib/windows.js",
   "lib/snapshot-store.js",
@@ -83,6 +85,8 @@ checks.push(check("manifest-id", manifest.id === "desktop-orchestrator", { value
 checks.push(check("manifest-version-matches-package", manifest.version === pkg.version, { manifestVersion: manifest.version, packageVersion: pkg.version }));
 checks.push(check("manifest-full-access-documented", manifest.trust === "full-access" && exists("docs/APPROVAL_WIDGET.md"), { trust: manifest.trust }));
 checks.push(check("real-input-default-disabled", manifest.contributes?.configuration?.properties?.allowRealInput?.default === false));
+checks.push(check("keyboard-input-default-disabled", manifest.contributes?.configuration?.properties?.allowKeyboardInput?.default === false));
+checks.push(check("clipboard-input-default-disabled", manifest.contributes?.configuration?.properties?.allowClipboardInput?.default === false));
 checks.push(check("widget-contribution-present", Boolean(manifest.contributes?.widget?.route), { route: manifest.contributes?.widget?.route || null }));
 checks.push(check("package-private", pkg.private === false, { detail: `private=${pkg.private}. Set to false for open-source publishing.` }));
 checks.push(check("package-module", pkg.type === "module", { type: pkg.type }));

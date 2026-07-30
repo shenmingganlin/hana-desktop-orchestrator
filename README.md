@@ -28,6 +28,8 @@ Plugin config (stored in `%APPDATA%/hana-desktop-orchestrator/config.json` or th
 | `allowRealInput` | Master switch for real mouse/keyboard actions. It must be explicitly enabled before any mode can execute desktop input. | `false` |
 | `permissionMode` | `safe` asks for every real action; `auto-review` allows common actions and asks for sensitive ones; `full-access` allows non-destructive actions and still asks before destructive actions. | `safe` |
 | `defaultSnapshotFormat` | Screenshot encoding. | `png` |
+| `allowKeyboardInput` | Enables the keyboard fallback only after UIA focus succeeds and the target window remains foreground. | `false` |
+| `allowClipboardInput` | Enables the clipboard fallback for plain-text clipboard state only; rich or binary clipboard state is rejected. | `false` |
 | `maxWindowResults` | How many windows `list-windows` returns. | `40` |
 | `visionApiBase` | Vision API base URL (Anthropic-format like `https://api.minimaxi.com/anthropic` or OpenAI-format). | empty |
 | `visionApiKey` | Vision API key. | empty |
@@ -43,7 +45,7 @@ The first permission-policy slice adds a shared decision kernel without changing
 - `auto-review`: common actions may run after `allowRealInput` is enabled; sensitive and destructive actions require confirmation.
 - `full-access`: common and sensitive actions may run after `allowRealInput` is enabled; destructive actions still require confirmation.
 
-All modes remain subject to the existing lease, element-signature, window-guard, approval-bundle, and post-action verification paths. `allowRealInput` remains `false` by default. This alpha also adds opt-in local control sessions with explicit scope, TTL, action limits, revocation, and hash integrity checks. Action batches, keyboard fallback execution, and remote command envelopes remain follow-up work.
+All modes remain subject to the existing lease, element-signature, window-guard, approval-bundle, and post-action verification paths. `allowRealInput`, `allowKeyboardInput`, and `allowClipboardInput` remain `false` by default. This alpha also adds opt-in local control sessions with explicit scope, TTL, action limits, revocation, and hash integrity checks. Action batches and remote command envelopes remain follow-up work.
 
 ## Safety
 
@@ -94,7 +96,7 @@ It aims to provide:
 | `desktop-orchestrator_protected-click` | Perform or dry-run a guarded click | High |
 | `desktop-orchestrator_ui-tree` | Read window-scoped UIA element summaries and create a short-lived lease | Low |
 | `desktop-orchestrator_click-element` | Dry-run or invoke a UIA element click after lease/signature verification | High |
-| `desktop-orchestrator_type-element` | Dry-run or set text through UIA ValuePattern after lease/signature verification | High |
+| `desktop-orchestrator_type-element` | Dry-run or set text through UIA ValuePattern; keyboard/clipboard fallback requires separate config gates, UIA focus, foreground verification, and optional session capability | High |
 | `desktop-orchestrator_verify-action` | Re-read a lease-bound UIA element and verify its signature | Low |
 | `desktop-orchestrator_visual-verify` | Capture an element region in memory and compare visual signatures | Low |
 | `desktop-orchestrator_region-preview` | Capture a lease-bound element crop as a PNG preview | Low |
@@ -139,14 +141,15 @@ It supports:
 - audit evidence JSON export with hash-chain verification
 
 The widget uses \`full-access\` because the plugin operates at the same system-privilege level as Hana's native Computer Use. Full-access is required for:
-- UIA InvokePattern (click-element) and ValuePattern.SetValue (type-element)
+- UIA InvokePattern (click-element), ValuePattern.SetValue, and explicitly gated text fallbacks (type-element)
+- Keyboard fallback sends Unicode input only after UIA SetFocus and foreground checks; clipboard fallback uses stdin transport and refuses rich clipboard state
 - Real mouse click, drag, and wheel injection (mouse-click-at, mouse-drag, mouse-wheel)
 - Window focus, move, resize, minimize, maximize, and close (focus-window, manage-window)
 - Screen capture via PrintWindow / CopyFromScreen (snapshot, region-preview)
 - Native helper process execution (desktop-helper.exe, desktop-uia-helper.exe)
 - Widget review cockpit surface
 
-All high-risk tools default to \`dryRun: true\` and require explicit confirmation plus signature verification before real execution. Raw coordinate mouse tools additionally require `expectedWindow`, persist approval evidence before input, reject failed cursor previews, and re-check the hit window immediately before injection. See [\`docs/SAFETY.md\`](docs/SAFETY.md) for the full guard chain.
+All high-risk tools default to \`dryRun: true\` and require explicit confirmation plus signature verification before real execution. Text fallback input also requires the corresponding `allowKeyboardInput` or `allowClipboardInput` setting; these settings are independent of `allowRealInput`. Raw coordinate mouse tools additionally require `expectedWindow`, persist approval evidence before input, reject failed cursor previews, and re-check the hit window immediately before injection. See [\`docs/SAFETY.md\`](docs/SAFETY.md) for the full guard chain.
 
 ## Audit Evidence
 
