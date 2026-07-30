@@ -64,7 +64,7 @@ When all checks pass, the widget can generate a local approval token. The token 
 
 `POST /api/execution-preflight` runs read-only checks against the selected approval token, its target, and the current live approval bundle for that target.
 
-Preflight requires `approvalBundleHash` in the token and compares it with the current bundle's `bundleHash`. A missing bundle, changed bundle, or mismatched digest blocks the token even when the checklist booleans, snapshot, and element signature still pass.
+Preflight requires the current approval protocol version, `approvalBundleHash` in the token, and compares it with the current bundle's `bundleHash`. A legacy version, missing bundle, changed bundle, or mismatched digest blocks the token even when the checklist booleans, snapshot, and element signature still pass. The token store rejects unsupported versions and version 2 tokens without a bundle hash before writing them.
 
 It does not click, type, focus, move the cursor, capture screenshots, or invoke UIA.
 

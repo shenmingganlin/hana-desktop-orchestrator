@@ -484,7 +484,7 @@ function renderClientScript() {
     if (!bundle) return null;
     return {
       type: 'desktop-orchestrator-local-approval-token',
-      version: 1,
+      version: 2,
       executable: false,
       createdAt: new Date().toISOString(),
       nonce: Math.random().toString(16).slice(2) + Date.now().toString(16),

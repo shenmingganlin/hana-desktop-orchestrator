@@ -5,7 +5,7 @@
 ### Fixed
 
 - Approval tokens now bind to the current live approval bundle through `approvalBundleHash` / `bundleHash`; missing, stale, changed, or mismatched bundles are blocked by preflight and covered by fixture regression cases.
-- Legacy bundles without `bundleHash`, and bundles with a tampered or internally inconsistent digest, remain displayable but are blocked as approval evidence until regenerated.
+- Legacy bundles without `bundleHash`, bundles with a tampered or internally inconsistent digest, and unsupported protocol versions remain displayable but are blocked as approval evidence until regenerated; version 2 tokens without `approvalBundleHash` are rejected before storage.
 
 ## 0.2.3 - 2026-07-29
 
