@@ -26,7 +26,9 @@ Plugin config (stored in `%APPDATA%/hana-desktop-orchestrator/config.json` or th
 | Key | Description | Default |
 | --- | --- | --- |
 | `allowRealInput` | Master switch for real mouse/keyboard actions. It must be explicitly enabled before any mode can execute desktop input. | `false` |
-| `permissionMode` | `safe` asks for every real action; `auto-review` allows common actions and asks for sensitive ones; `full-access` allows non-destructive actions and still asks before destructive actions. | `safe` |
+| `permissionMode` | Overall permission boundary: `safe`, `auto-review`, or `full-access`. It cannot enable real input by itself. | `safe` |
+| `confirmationPolicy` | Legacy global confirmation preset. New action-level overrides from the sidebar take precedence for registered actions. | empty |
+| `actionConfirmation` | Object containing explicit per-action overrides such as `window.close`, `input.keyboard-fallback`, and `input.clipboard-fallback`, with values `auto` or `confirm`. | `{}` |
 | `defaultSnapshotFormat` | Screenshot encoding. | `png` |
 | `allowKeyboardInput` | Enables the keyboard fallback only after UIA focus succeeds and the target window remains foreground. | `false` |
 | `allowClipboardInput` | Enables the clipboard fallback for plain-text clipboard state only; rich or binary clipboard state is rejected. | `false` |
@@ -56,7 +58,7 @@ High-risk tools default to dry-run. Real input first requires:
 3. The configured `permissionMode` decision.
 4. When `sessionId` is supplied, a valid control session whose scope matches the action and target.
 
-In `safe`, the exact confirmation phrase `I_UNDERSTAND_DESKTOP_INPUT` is required for every real action. In `auto-review` and `full-access`, the shared policy can allow common or sensitive actions automatically, while destructive actions still require the phrase. Any missing gate returns a dry-run envelope without touching the system. The plugin keeps an append-only local audit timeline at `%TEMP%/hana-desktop-orchestrator/audit-timeline.json`. Control sessions are stored separately at `%TEMP%/hana-desktop-orchestrator/control-session-store.json`; session creation and revocation require `I_UNDERSTAND_DESKTOP_INPUT` and never execute desktop input.
+In `safe`, the exact confirmation phrase `I_UNDERSTAND_DESKTOP_INPUT` is required for every real action. In `auto-review` and `full-access`, the shared policy provides the default behavior, while explicit action-level settings can change the confirmation level for registered actions. `window.close`, `input.keyboard-fallback`, and `input.clipboard-fallback` are editable from the widget sidebar; changing any of them away from its default shows a risk warning before saving. External send/submit/publish, payment, and credential actions remain hard-confirmation actions and cannot be made silent. Any missing gate returns a dry-run envelope without touching the system. The plugin keeps an append-only local audit timeline at `%TEMP%/hana-desktop-orchestrator/audit-timeline.json`. Control sessions are stored separately at `%TEMP%/hana-desktop-orchestrator/control-session-store.json`; session creation and revocation require `I_UNDERSTAND_DESKTOP_INPUT` and never execute desktop input.
 
 ## Known Bugs and Limits
 
@@ -120,9 +122,15 @@ It aims to provide:
 
 High-risk tools default to dry-run. Real input remains blocked unless the applicable gates pass: `dryRun: false`, plugin config `allowRealInput: true`, permission policy, and for session-bound actions a valid scoped session. `safe` actions still require the exact confirmation phrase `I_UNDERSTAND_DESKTOP_INPUT`; session creation and revocation always require it.
 
+## Sidebar Policy Management
+
+The widget at `/api/plugins/desktop-orchestrator/widget` contains a policy management sidebar and the review cockpit. The policy section reads the action registry from `GET /api/action-policies` and saves only the `actionConfirmation` object through `POST /api/action-policies`; it cannot change `allowRealInput`, `permissionMode`, or the system hard-confirmation floor.
+
+Each registered action has a stable key, a default confirmation level, and a minimum safety rule. The sidebar groups actions by window, UIA, fallback input, mouse, and system-floor categories. The three editable high-risk actions display a warning badge and require an explicit warning acknowledgement before a save is accepted. Unknown actions fail closed and require confirmation.
+
 ## Review Cockpit
 
-The widget at `/api/plugins/desktop-orchestrator/widget` is a review cockpit, not an execution panel.
+The widget review section remains a dry-run evidence cockpit, not an execution panel.
 
 It supports:
 

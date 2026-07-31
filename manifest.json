@@ -50,7 +50,21 @@
           "default": "safe",
           "enum": ["safe", "auto-review", "full-access"],
           "title": "桌面控制权限模式",
-          "description": "安全模式逐步确认；自动审核模式自动执行常见操作并对敏感操作请求确认；完整权限模式自动执行非破坏性操作，破坏性操作仍需确认。需要同时开启允许真实桌面输入。"
+          "description": "控制真实桌面输入的总体权限。需要同时开启允许真实桌面输入。"
+        },
+        "confirmationPolicy": {
+          "type": "string",
+          "default": "",
+          "enum": ["", "all-real-actions", "sensitive-and-destructive", "destructive-only"],
+          "title": "真实动作确认级别（兼容设置）",
+          "description": "旧版全局确认级别设置。新的动作级策略优先由侧边栏管理。"
+        },
+        "actionConfirmation": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": { "type": "string", "enum": ["auto", "confirm"] },
+          "title": "动作级确认覆盖",
+          "description": "由桌面控制侧边栏写入。只保存用户明确修改的动作；系统底线动作不可设置为自动执行。"
         },
         "defaultSnapshotFormat": {
           "type": "string",

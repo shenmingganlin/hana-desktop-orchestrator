@@ -13,6 +13,7 @@ const syntaxFiles = [
   "lib/audit-evidence-export.js",
   "lib/cockpit-summary.js",
   "lib/action-risk.js",
+  "lib/action-policy.js",
   "lib/permission-policy.js",
   "lib/control-session.js",
   "lib/protocol-test-matrix.js",
@@ -74,6 +75,10 @@ const steps = [
   {
     name: "permission-policy-matrix",
     command: [nodeCommand, ["scripts/permission-policy-matrix.js"]],
+  },
+  {
+    name: "action-policy-matrix",
+    command: [nodeCommand, ["scripts/action-policy-matrix.js"]],
   },
   {
     name: "control-session-matrix",

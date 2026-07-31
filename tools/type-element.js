@@ -161,13 +161,11 @@ export async function execute(input = {}, toolCtx = {}) {
   const canSetValue = capability.supportsValue === true && capability.isReadOnly !== true;
   const effectiveFallback = requestedFallback;
   const effectiveCapability = canSetValue ? capability : { ...capability, fallback: effectiveFallback };
-  const effectiveApproval = canSetValue
-    ? approval
-    : requireRealInputApproval(input, config, {
-        actionType: "type-element",
-        target: targetContext,
-        capability: effectiveCapability,
-      });
+  const effectiveApproval = requireRealInputApproval(input, config, {
+    actionType: "type-element",
+    target: targetContext,
+    capability: canSetValue ? capability : effectiveCapability,
+  });
   const fallbackConfigKey = effectiveFallback === "clipboard" ? "allowClipboardInput" : "allowKeyboardInput";
   const fallbackConfigAllowed = canSetValue || config[fallbackConfigKey] === true;
   const gatedApproval = !canSetValue && !fallbackConfigAllowed

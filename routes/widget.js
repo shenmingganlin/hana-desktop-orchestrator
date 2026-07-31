@@ -14,6 +14,13 @@ import { appendAuditEvent, readAuditTimeline } from "../lib/audit-timeline.js";
 import { findSnapshotElement, loadSnapshot } from "../lib/snapshot-store.js";
 import { execute as executeRegionPreview } from "../tools/region-preview.js";
 import { execute as executeVisualVerify } from "../tools/visual-verify.js";
+import {
+  getActionConfirmationConfig,
+  listActionPolicies,
+  loadDesktopOrchestratorConfig,
+  normalizeActionConfirmation,
+  saveActionConfirmationConfig,
+} from "../lib/action-policy.js";
 
 const TITLE = "桌面审批";
 const PREVIEW_DIR = path.join(os.tmpdir(), "hana-desktop-orchestrator");
@@ -21,6 +28,8 @@ const PREVIEW_DIR = path.join(os.tmpdir(), "hana-desktop-orchestrator");
 export default function registerApprovalWidgetRoutes(app, ctx) {
   app.get("/widget", (c) => c.html(renderWidget(c, ctx)));
   app.get("/api/recent", (c) => c.json(getRecentApprovalBundle()));
+  app.get("/api/action-policies", (c) => c.json(getActionPolicies()));
+  app.post("/api/action-policies", async (c) => c.json(await saveActionPoliciesRequest(c)));
   app.get("/api/approval-tokens/recent", (c) => c.json(getRecentApprovalToken()));
   app.get("/api/audit-timeline", (c) => c.json(readAuditTimeline({ limit: Number(c.req.query("limit")) || 30 })));
   app.post("/api/audit-timeline", async (c) => c.json(await appendAuditEventRequest(c)));
@@ -37,6 +46,63 @@ export default function registerApprovalWidgetRoutes(app, ctx) {
   app.post("/api/preview/region-preview", async (c) => c.json(await runPreviewRequest(c, (input) => executeRegionPreview(input, {}))));
   app.get("/api/preview-image", (c) => servePreviewImage(c));
   app.get("/health", (c) => c.json({ ok: true, pluginId: ctx.pluginId, surface: "approval-widget" }));
+}
+
+function getActionPolicies() {
+  const config = loadDesktopOrchestratorConfig();
+  const configured = getActionConfirmationConfig(config);
+  return {
+    ok: true,
+    type: "desktop-orchestrator-action-policies",
+    policies: listActionPolicies().map((policy) => ({
+      ...policy,
+      configuredLevel: configured[policy.key] || policy.defaultLevel,
+      effectiveLevel: configured[policy.key] || policy.defaultLevel,
+      warningOnChange: policy.warningOnChange === true,
+    })),
+    settings: {
+      permissionMode: config.permissionMode || config.trustMode || null,
+      allowRealInput: config.allowRealInput === true,
+    },
+    safety: {
+      hardConfirmationCannotBeDisabled: true,
+      identityGuardsUnaffected: true,
+      noDesktopActionExecuted: true,
+    },
+  };
+}
+
+async function saveActionPoliciesRequest(c) {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const requested = body?.actionConfirmation;
+    const normalized = normalizeActionConfirmation(requested);
+    const changedWarnings = listActionPolicies()
+      .filter((policy) => policy.warningOnChange === true && Object.prototype.hasOwnProperty.call(normalized, policy.key))
+      .filter((policy) => normalized[policy.key] !== policy.defaultLevel)
+      .map((policy) => ({ key: policy.key, title: policy.title, warning: policy.warning }));
+    if (changedWarnings.length > 0 && body?.acknowledgeWarnings !== true) {
+      return {
+        ok: false,
+        blocked: true,
+        reason: "policy-warning-acknowledgement-required",
+        warnings: changedWarnings,
+        noDesktopActionExecuted: true,
+      };
+    }
+    const saved = saveActionConfirmationConfig(normalized);
+    appendAuditEvent("action-confirmation-policy-updated", {
+      keys: Object.keys(normalized),
+      warningsAcknowledged: changedWarnings.length > 0,
+    });
+    return {
+      ...saved,
+      warnings: changedWarnings,
+      noDesktopActionExecuted: true,
+    };
+  } catch (error) {
+    return { ok: false, reason: "action-policy-save-failed", message: error?.message || String(error), noDesktopActionExecuted: true };
+  }
 }
 
 async function appendAuditEventRequest(c) {
@@ -187,10 +253,26 @@ function renderWidget(c, ctx) {
 <body data-hana-theme="${escapeAttr(theme)}">
   <main class="panel">
     <header class="hero">
-      <div class="badge">仅供预览</div>
-      <h1>桌面审批</h1>
-      <p>自动读取最近一次审批包，也可粘贴 <code>approvalBundle</code> 或完整工具返回 JSON。此面板只做解析和展示，不执行真实桌面输入。</p>
+      <div class="badge">侧边栏 · 安全管理</div>
+      <h1>桌面控制</h1>
+      <p>在这里管理动作确认级别。策略只影响确认频率，不会关闭真实输入总开关、目标身份校验或窗口守卫。</p>
     </header>
+
+    <section class="card policy-card" id="policyCard">
+      <div class="row between">
+        <div>
+          <div class="label">操作确认策略</div>
+          <div class="policy-headline" id="policyHeadline">正在读取动作注册表。</div>
+        </div>
+        <button type="button" id="refreshPoliciesButton" class="small secondary">刷新</button>
+      </div>
+      <div class="policy-notice" id="policyNotice">系统底线动作始终需要确认。关闭窗口、剪贴板输入和键盘回退允许修改，但修改为自动执行前会显示风险警告。</div>
+      <div id="policyList" class="policy-list"><div class="empty">正在读取策略。</div></div>
+      <div class="row between policy-footer">
+        <span class="hint" id="policySaveHint">尚未加载。</span>
+        <button type="button" id="savePoliciesButton">保存策略</button>
+      </div>
+    </section>
 
     <section class="card danger" id="safetyCard">
       <div class="label">安全门</div>
@@ -388,6 +470,17 @@ function renderClientScript() {
     overlayLabel: document.getElementById('overlayLabel'),
     replayOverlayButton: document.getElementById('replayOverlayButton'),
     normalizedOutput: document.getElementById('normalizedOutput'),
+    policyHeadline: document.getElementById('policyHeadline'),
+    policyNotice: document.getElementById('policyNotice'),
+    policyList: document.getElementById('policyList'),
+    refreshPoliciesButton: document.getElementById('refreshPoliciesButton'),
+    savePoliciesButton: document.getElementById('savePoliciesButton'),
+    policySaveHint: document.getElementById('policySaveHint'),
+  };
+
+  const policyState = {
+    policies: [],
+    dirty: false,
   };
 
   const approvalState = {
@@ -415,6 +508,73 @@ function renderClientScript() {
       ...options,
       credentials: options.credentials || 'same-origin',
     });
+  }
+
+  const levelLabels = { auto: '自动执行', confirm: '每次确认' };
+
+  function renderPolicies(payload) {
+    policyState.policies = Array.isArray(payload?.policies) ? payload.policies : [];
+    policyState.dirty = false;
+    const groups = [];
+    for (const policy of policyState.policies) {
+      let group = groups.find((item) => item.name === policy.group);
+      if (!group) { group = { name: policy.group, items: [] }; groups.push(group); }
+      group.items.push(policy);
+    }
+    els.policyHeadline.textContent = (payload?.settings?.allowRealInput ? '真实输入总开关已开启' : '真实输入总开关未开启') + ' · ' + policyState.policies.length + ' 项动作';
+    els.policyList.innerHTML = groups.map((group) => '<section class="policy-group"><div class="policy-group-title">' + escapeHtml(group.name) + '</div>' + group.items.map((policy) => {
+      const locked = policy.hardConfirmation === true || policy.configurable === false;
+      const warning = policy.warningOnChange ? '<span class="policy-warning">修改有风险</span>' : (locked ? '<span class="policy-locked">系统底线</span>' : '');
+      return '<article class="policy-row ' + (policy.warningOnChange ? 'warning-row' : '') + '"><div class="policy-copy"><strong>' + escapeHtml(policy.title) + '</strong><span><code>' + escapeHtml(policy.key) + '</code> · 默认' + escapeHtml(levelLabels[policy.defaultLevel] || policy.defaultLevel) + '</span>' + warning + '<small>' + escapeHtml(policy.warning || '') + '</small></div><select data-policy-key="' + escapeHtml(policy.key) + '" ' + (locked ? 'disabled' : '') + '><option value="auto" ' + (policy.effectiveLevel === 'auto' ? 'selected' : '') + '>自动执行</option><option value="confirm" ' + (policy.effectiveLevel === 'confirm' ? 'selected' : '') + '>每次确认</option></select></article>';
+    }).join('') + '</section>').join('');
+    els.policyList.querySelectorAll('select[data-policy-key]').forEach((select) => select.addEventListener('change', () => {
+      const policy = policyState.policies.find((item) => item.key === select.dataset.policyKey);
+      if (policy) { policy.effectiveLevel = select.value; policyState.dirty = true; }
+      els.policySaveHint.textContent = '有未保存的策略修改。';
+      els.policySaveHint.dataset.state = 'warn';
+    }));
+    els.policySaveHint.textContent = '策略已加载。';
+    els.policySaveHint.dataset.state = 'ok';
+  }
+
+  async function refreshPolicies() {
+    els.refreshPoliciesButton.disabled = true;
+    try {
+      const response = await pluginFetch('./api/action-policies');
+      const payload = await response.json();
+      renderPolicies(payload);
+    } catch (error) {
+      els.policyList.innerHTML = '<div class="empty">加载失败：' + escapeHtml(error.message || String(error)) + '</div>';
+      els.policySaveHint.textContent = '策略加载失败。';
+      els.policySaveHint.dataset.state = 'error';
+    } finally {
+      els.refreshPoliciesButton.disabled = false;
+    }
+  }
+
+  async function savePolicies() {
+    const changedWarnings = policyState.policies.filter((policy) => policy.warningOnChange && policy.effectiveLevel !== policy.defaultLevel);
+    let acknowledgeWarnings = false;
+    if (changedWarnings.length > 0) {
+      const names = changedWarnings.map((policy) => policy.title).join('、');
+      acknowledgeWarnings = window.confirm('你正在修改高风险动作：' + names + '。\n\n' + changedWarnings.map((policy) => policy.warning).join('\n') + '\n\n确认保存这些修改吗？');
+      if (!acknowledgeWarnings) return;
+    }
+    els.savePoliciesButton.disabled = true;
+    try {
+      const actionConfirmation = Object.fromEntries(policyState.policies.filter((policy) => policy.configurable && policy.effectiveLevel !== policy.defaultLevel).map((policy) => [policy.key, policy.effectiveLevel]));
+      const response = await pluginFetch('./api/action-policies', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ actionConfirmation, acknowledgeWarnings }) });
+      const payload = await response.json();
+      if (!payload?.ok) throw new Error(payload?.reason || '策略保存失败');
+      els.policySaveHint.textContent = '策略已保存。';
+      els.policySaveHint.dataset.state = 'ok';
+      await refreshPolicies();
+    } catch (error) {
+      els.policySaveHint.textContent = error.message || String(error);
+      els.policySaveHint.dataset.state = 'error';
+    } finally {
+      els.savePoliciesButton.disabled = false;
+    }
   }
 
   async function exportAuditEvidenceFromWidget() {
@@ -952,6 +1112,8 @@ function renderClientScript() {
   els.refreshCockpitSummaryButton.addEventListener('click', refreshCockpitSummary);
   els.exportEvidenceButton.addEventListener('click', exportAuditEvidenceFromWidget);
   els.refreshTimelineButton.addEventListener('click', refreshAuditTimeline);
+  els.refreshPoliciesButton.addEventListener('click', refreshPolicies);
+  els.savePoliciesButton.addEventListener('click', savePolicies);
   els.replayOverlayButton.addEventListener('click', () => {
     try {
       const bundle = parseMaybeWrappedBundle(els.input.value.trim());
@@ -966,6 +1128,7 @@ function renderClientScript() {
   loadRecent();
   refreshCockpitSummary();
   refreshAuditTimeline();
+  refreshPolicies();
 })();
 `;
 }
@@ -998,6 +1161,23 @@ p { margin: 6px 0 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
 .card { padding: 14px; }
 .card.danger { border-color: rgba(239,68,68,.24); background: linear-gradient(145deg, rgba(255,255,255,.88), rgba(239,68,68,.08)); }
 .checklist-card { display: grid; gap: 10px; }
+.policy-card { display: grid; gap: 11px; border-color: rgba(124,140,255,.28); }
+.policy-headline { margin-top: 4px; font-size: 16px; font-weight: 800; }
+.policy-notice { padding: 10px 11px; border: 1px solid rgba(245,158,11,.30); border-radius: 12px; color: var(--text); background: rgba(245,158,11,.10); font-size: 12px; line-height: 1.5; }
+.policy-list { display: grid; gap: 12px; }
+.policy-group { display: grid; gap: 7px; }
+.policy-group-title { color: var(--muted); font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.policy-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 10px; border: 1px solid var(--border); border-radius: 12px; background: rgba(148,163,184,.08); }
+.policy-row.warning-row { border-color: rgba(245,158,11,.34); background: rgba(245,158,11,.07); }
+.policy-copy { min-width: 0; display: grid; gap: 3px; }
+.policy-copy strong { font-size: 13px; }
+.policy-copy span, .policy-copy small { color: var(--muted); font-size: 11px; line-height: 1.45; overflow-wrap: anywhere; }
+.policy-copy small { display: block; }
+.policy-warning, .policy-locked { width: fit-content; color: var(--warn) !important; font-weight: 800; }
+.policy-locked { color: var(--danger) !important; }
+.policy-row select { flex: 0 0 108px; min-width: 0; border: 1px solid var(--border); border-radius: 9px; padding: 7px 6px; color: var(--text); background: var(--panel); font-size: 11px; }
+.policy-row select:disabled { cursor: not-allowed; opacity: .62; }
+.policy-footer { align-items: center; }
 .checklist { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .check { display: flex; align-items: center; gap: 8px; padding: 9px 10px; border: 1px solid var(--border); border-radius: 13px; color: var(--muted); background: rgba(148,163,184,.10); font-size: 12px; font-weight: 720; }
 .check span { width: 10px; height: 10px; border-radius: 999px; background: #94a3b8; box-shadow: 0 0 0 4px rgba(148,163,184,.14); }
@@ -1063,6 +1243,7 @@ dd { margin: 0; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regul
 .timeline-event strong { display: block; font-size: 13px; }
 .timeline-event span { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; }
 .timeline-event pre { margin: 8px 0 0; max-height: 160px; overflow: auto; white-space: pre-wrap; font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+@container hfwidget (max-width: 420px) { .policy-row { display: grid; } .policy-row select { width: 100%; } }
 .raw-card pre { max-height: 280px; padding: 10px; border-radius: 14px; background: rgba(15,23,42,.06); }
 html, body { max-width: 100%; overflow-x: hidden; }
 body { width: 100%; }

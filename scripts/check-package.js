@@ -18,6 +18,7 @@ const requiredFiles = [
   "scripts/install-smoke.js",
   "scripts/final-regression.js",
   "scripts/permission-policy-matrix.js",
+  "scripts/action-policy-matrix.js",
   "scripts/control-session-matrix.js",
   "scripts/text-input-matrix.js",
   "scripts/native-safe-smoke.js",
@@ -29,6 +30,7 @@ const requiredFiles = [
   "docs/TOOL_DISCOVERY_NOTES.md",
   "lib/safety.js",
   "lib/action-risk.js",
+  "lib/action-policy.js",
   "lib/permission-policy.js",
   "lib/control-session.js",
   "lib/text-input.js",
@@ -88,6 +90,7 @@ checks.push(check("manifest-full-access-documented", manifest.trust === "full-ac
 checks.push(check("real-input-default-disabled", manifest.contributes?.configuration?.properties?.allowRealInput?.default === false));
 checks.push(check("keyboard-input-default-disabled", manifest.contributes?.configuration?.properties?.allowKeyboardInput?.default === false));
 checks.push(check("clipboard-input-default-disabled", manifest.contributes?.configuration?.properties?.allowClipboardInput?.default === false));
+checks.push(check("action-confirmation-config-present", manifest.contributes?.configuration?.properties?.actionConfirmation?.type === "object"));
 checks.push(check("widget-contribution-present", Boolean(manifest.contributes?.widget?.route), { route: manifest.contributes?.widget?.route || null }));
 checks.push(check("package-private", pkg.private === false, { detail: `private=${pkg.private}. Set to false for open-source publishing.` }));
 checks.push(check("package-module", pkg.type === "module", { type: pkg.type }));
