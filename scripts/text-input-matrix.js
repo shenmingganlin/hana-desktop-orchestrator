@@ -55,6 +55,20 @@ try {
   });
   check("focus-verification-matches-target", matchingFocusedElement.ok === true && matchingFocusedElement.matchedBy === "automationId", { matchingFocusedElement });
 
+  const matchingChildFocusedElement = verifyFocusedElementIdentity({
+    handle: "123",
+    targetKey: "editor",
+    focusedElement: { nativeWindowHandle: 123, childWindowHandle: 456, topLevelWindowHandle: 123, automationId: "editor", hasKeyboardFocus: true },
+  });
+  check("focus-verification-accepts-child-control-hwnd", matchingChildFocusedElement.ok === true && matchingChildFocusedElement.matchedBy === "automationId", { matchingChildFocusedElement });
+
+  const wrongTopLevelFocusedElement = verifyFocusedElementIdentity({
+    handle: "123",
+    targetKey: "editor",
+    focusedElement: { nativeWindowHandle: 999, childWindowHandle: 456, topLevelWindowHandle: 999, automationId: "editor", hasKeyboardFocus: true },
+  });
+  check("focus-verification-blocks-wrong-top-level-hwnd", wrongTopLevelFocusedElement.ok === false && wrongTopLevelFocusedElement.reason === "focused-element-window-mismatch", { wrongTopLevelFocusedElement });
+
   assert.equal(cases.some((item) => item.passed === false), false);
 } catch (error) {
   cases.push({ name: "matrix-exception", passed: false, error: error?.message || String(error) });

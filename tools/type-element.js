@@ -256,9 +256,16 @@ export async function execute(input = {}, toolCtx = {}) {
     // Keep fallback focus bound to the same UIA tree index used for typing;
     // localized names are not stable across the helper process boundary.
     const targetKey = `index:${targetIndex}`;
+    const identityKey = String(
+      storedElement?.automationId
+      || storedElement?.name
+      || inspectResult.element?.automationId
+      || inspectResult.element?.name
+      || "",
+    ).trim();
     focusResult = parseJsonOutput(runUiaHelper("uia-focus", [effectiveHandle, targetKey]), "type-element-focus");
     focusVerification = focusResult?.ok
-      ? verifyFocusedElementIdentity({ focusedElement: focusResult.focusedElement, handle: effectiveHandle, targetKey })
+      ? verifyFocusedElementIdentity({ focusedElement: focusResult.focusedElement, handle: effectiveHandle, targetKey: identityKey })
       : { ok: false, reason: "target-element-focus-failed", focusResult };
 
     if (!focusVerification.ok) {

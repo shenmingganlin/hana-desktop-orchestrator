@@ -393,7 +393,11 @@ class Program
             catch { }
 
             Dictionary<string, object> identity = new Dictionary<string, object>();
-            identity["nativeWindowHandle"] = current.NativeWindowHandle;
+            IntPtr childWindowHandle = new IntPtr(current.NativeWindowHandle);
+            IntPtr topLevelWindowHandle = Win32.GetAncestor(childWindowHandle, Win32.GA_ROOT);
+            identity["nativeWindowHandle"] = topLevelWindowHandle == IntPtr.Zero ? childWindowHandle : topLevelWindowHandle;
+            identity["childWindowHandle"] = childWindowHandle;
+            identity["topLevelWindowHandle"] = topLevelWindowHandle == IntPtr.Zero ? childWindowHandle : topLevelWindowHandle;
             identity["name"] = current.Name ?? "";
             identity["automationId"] = current.AutomationId ?? "";
             identity["controlType"] = current.ControlType == null ? "" : current.ControlType.ProgrammaticName;
@@ -585,6 +589,11 @@ class Program
 
 internal static class Win32
 {
+    public const uint GA_ROOT = 2;
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetAncestor(IntPtr hWnd, uint flags);
+
     [DllImport("user32.dll")]
     public static extern bool SetCursorPos(int X, int Y);
 
