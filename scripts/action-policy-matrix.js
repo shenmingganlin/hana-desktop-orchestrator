@@ -7,6 +7,7 @@ import {
   resolveActionPolicy,
 } from "../lib/action-policy.js";
 import { decidePermission, PERMISSION_MODES } from "../lib/permission-policy.js";
+import { resolvePluginConfig } from "../lib/safety.js";
 
 const realInput = { dryRun: false };
 const fullConfig = { allowRealInput: true, permissionMode: PERMISSION_MODES.FULL_ACCESS };
@@ -29,6 +30,9 @@ check("normalization-drops-unknown-and-hard-floor", JSON.stringify(normalizeActi
   "unknown.action": "auto",
 })) === JSON.stringify({ "window.close": CONFIRMATION_LEVELS.AUTO }));
 check("unknown-actions-fail-closed", resolveActionPolicy({ actionType: "future-tool" }).hardConfirmation === true);
+
+const hostConfig = resolvePluginConfig({ config: { permissionMode: "host-priority", actionConfirmation: { "window.focus": "confirm" } } });
+check("host-config-overrides-compatibility-file", hostConfig.permissionMode === "host-priority" && hostConfig.actionConfirmation?.["window.focus"] === "confirm", { permissionMode: hostConfig.permissionMode, actionConfirmation: hostConfig.actionConfirmation });
 
 const ordinary = decidePermission({ input: realInput, config: fullConfig, actionType: "focus-window" });
 check("full-access-ordinary-default-auto", ordinary.allowed === true && ordinary.actionKey === "window.focus" && ordinary.requiresConfirmation === false, ordinary);

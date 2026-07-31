@@ -125,7 +125,7 @@ High-risk tools default to dry-run. Real input remains blocked unless the applic
 
 ## Sidebar Policy Management
 
-The widget at `/api/plugins/desktop-orchestrator/widget` contains a policy management sidebar and the review cockpit. The policy section reads the action registry from `GET /api/action-policies` and saves only the `actionConfirmation` object through `POST /api/action-policies`; it cannot change `allowRealInput`, `permissionMode`, or the system hard-confirmation floor.
+The widget at `/api/plugins/desktop-orchestrator/widget` contains a policy management sidebar and the review cockpit. The policy section reads the action registry from `GET /api/action-policies` and saves only the `actionConfirmation` object through `POST /api/action-policies`; it cannot change `allowRealInput`, `permissionMode`, or the system hard-confirmation floor. On Hana hosts, reads and writes use the shared plugin configuration service so the Widget, settings page, and runtime permission checks remain synchronized; standalone or older hosts use the atomic config-file fallback.
 
 Each registered action has a stable key, a default confirmation level, and a minimum safety rule. The sidebar groups actions by window, UIA, fallback input, mouse, and system-floor categories. The three editable high-risk actions display a warning badge and require an explicit warning acknowledgement before a save is accepted. Unknown actions fail closed and require confirmation.
 

@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "desktop-orchestrator",
   "name": "Desktop Orchestrator",
-  "version": "0.3.0-alpha.3",
+  "version": "0.3.0-alpha.4",
   "description": "A powerful but guarded Windows desktop control platform for HanaAgent. Provides desktop snapshots, window targeting, action planning, and protected input execution.",
   "author": {
     "name": "Ganlin & ChatGPT"

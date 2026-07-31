@@ -30,9 +30,9 @@ const MANIFEST_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), ".
 export default function registerApprovalWidgetRoutes(app, ctx) {
   app.get("/widget", (c) => c.html(renderWidget(c, ctx)));
   app.get("/api/recent", (c) => c.json(getRecentApprovalBundle()));
-  app.get("/api/action-policies", (c) => c.json(getActionPolicies()));
-  app.get("/api/configuration", (c) => c.json(getConfigurationSnapshot()));
-  app.post("/api/action-policies", async (c) => c.json(await saveActionPoliciesRequest(c)));
+  app.get("/api/action-policies", (c) => c.json(getActionPolicies(ctx)));
+  app.get("/api/configuration", (c) => c.json(getConfigurationSnapshot(ctx)));
+  app.post("/api/action-policies", async (c) => c.json(await saveActionPoliciesRequest(c, ctx)));
   app.get("/api/approval-tokens/recent", (c) => c.json(getRecentApprovalToken()));
   app.get("/api/audit-timeline", (c) => c.json(readAuditTimeline({ limit: Number(c.req.query("limit")) || 30 })));
   app.post("/api/audit-timeline", async (c) => c.json(await appendAuditEventRequest(c)));
@@ -51,8 +51,8 @@ export default function registerApprovalWidgetRoutes(app, ctx) {
   app.get("/health", (c) => c.json({ ok: true, pluginId: ctx.pluginId, surface: "approval-widget" }));
 }
 
-function getActionPolicies() {
-  const config = loadDesktopOrchestratorConfig();
+function getActionPolicies(ctx) {
+  const config = loadDesktopOrchestratorConfig(ctx?.config);
   const configured = getActionConfirmationConfig(config);
   return {
     ok: true,
@@ -75,14 +75,14 @@ function getActionPolicies() {
   };
 }
 
-function getConfigurationSnapshot() {
+function getConfigurationSnapshot(ctx) {
   let manifest = {};
   try {
     manifest = JSON.parse(fs.readFileSync(MANIFEST_PATH, "utf8"));
   } catch {
     return { ok: false, reason: "manifest-read-failed", configuration: [], noDesktopActionExecuted: true };
   }
-  const config = loadDesktopOrchestratorConfig();
+  const config = loadDesktopOrchestratorConfig(ctx?.config);
   const properties = manifest?.contributes?.configuration?.properties || {};
   const configuration = Object.entries(properties).map(([key, definition]) => ({
     key,
@@ -121,7 +121,7 @@ function formatConfigurationValue(key, value, definition = {}) {
   return String(value);
 }
 
-async function saveActionPoliciesRequest(c) {
+async function saveActionPoliciesRequest(c, ctx) {
   try {
     const body = await c.req.json().catch(() => ({}));
     const requested = body?.actionConfirmation;
@@ -139,10 +139,25 @@ async function saveActionPoliciesRequest(c) {
         noDesktopActionExecuted: true,
       };
     }
-    const saved = saveActionConfirmationConfig(normalized);
+
+    // Use Hana's configuration service when available so the host cache and the
+    // on-disk plugin configuration stay synchronized. The atomic file writer is
+    // retained for standalone installs and older hosts without ctx.config.
+    let saved;
+    if (ctx?.config?.setMany) {
+      ctx.config.setMany({ actionConfirmation: normalized });
+      saved = { ok: true, actionConfirmation: normalized, persistence: "host-config-api" };
+    } else if (ctx?.config?.set) {
+      ctx.config.set("actionConfirmation", normalized);
+      saved = { ok: true, actionConfirmation: normalized, persistence: "host-config-api" };
+    } else {
+      saved = saveActionConfirmationConfig(normalized);
+      saved.persistence = "atomic-file-fallback";
+    }
     appendAuditEvent("action-confirmation-policy-updated", {
       keys: Object.keys(normalized),
       warningsAcknowledged: changedWarnings.length > 0,
+      persistence: saved.persistence,
     });
     return {
       ...saved,
@@ -290,8 +305,8 @@ function servePreviewImage(c) {
 
 function renderWidget(c, ctx) {
   const theme = c.req.query("hana-theme") || "inherit";
-  const initialPolicies = getActionPolicies();
-  const initialConfiguration = getConfigurationSnapshot();
+  const initialPolicies = getActionPolicies(ctx);
+  const initialConfiguration = getConfigurationSnapshot(ctx);
   const initialPoliciesJson = JSON.stringify(initialPolicies).replace(/</g, "\\u003c").replace(/>/g, "\\u003e").replace(/&/g, "\\u0026");
   return `<!doctype html>
 <html lang="zh-CN">
@@ -299,7 +314,6 @@ function renderWidget(c, ctx) {
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>${escapeHtml(TITLE)}</title>
-  <script>window.parent && window.parent.postMessage({ type: 'ready' }, '*');</script>
   <style>${renderCss()}</style>
 </head>
 <body data-hana-theme="${escapeAttr(theme)}">
@@ -318,7 +332,7 @@ function renderWidget(c, ctx) {
         </div>
         <button type="button" id="refreshConfigurationButton" class="small secondary">刷新</button>
       </div>
-      <div class="settings-note">配置来源：manifest.json。密钥只显示是否已设置，Widget 不修改插件设置。</div>
+      <div class="settings-note">配置来源：manifest.json。密钥只显示是否已设置；Widget 只修改动作确认策略，其他插件设置仍由设置页管理。</div>
       <div id="configurationList" class="configuration-list">${renderConfigurationHtml(initialConfiguration)}</div>
     </section>
 
@@ -479,6 +493,7 @@ function renderWidget(c, ctx) {
       <pre id="normalizedOutput">等待解析。</pre>
     </section>
   </main>
+  <script>window.parent && window.parent.postMessage({ type: 'ready' }, '*');</script>
   <script>window.__DESKTOP_ORCHESTRATOR_POLICIES__ = ${initialPoliciesJson};</script>
   <script>window.__DESKTOP_ORCHESTRATOR_CONFIGURATION__ = ${JSON.stringify(initialConfiguration).replace(/</g, "\\u003c").replace(/>/g, "\\u003e").replace(/&/g, "\\u0026")};</script>
   <script>${renderClientScript()}</script>
@@ -573,6 +588,20 @@ function renderClientScript() {
     policies: [],
     dirty: false,
   };
+
+  function notifyResize() {
+    if (notifyResize._pending) return;
+    notifyResize._pending = true;
+    requestAnimationFrame(() => {
+      notifyResize._pending = false;
+      const height = document.body.scrollHeight;
+      if (height === notifyResize._lastHeight) return;
+      notifyResize._lastHeight = height;
+      window.parent?.postMessage({ type: 'resize-request', payload: { height } }, '*');
+    });
+  }
+  notifyResize._pending = false;
+  notifyResize._lastHeight = 0;
   const initialPolicies = window.__DESKTOP_ORCHESTRATOR_POLICIES__ || null;
   const initialConfiguration = window.__DESKTOP_ORCHESTRATOR_CONFIGURATION__ || null;
 
@@ -654,6 +683,7 @@ function renderClientScript() {
     }));
     els.policySaveHint.textContent = '策略已加载。';
     els.policySaveHint.dataset.state = 'ok';
+    notifyResize();
   }
 
   async function refreshPolicies() {
@@ -693,6 +723,7 @@ function renderClientScript() {
       els.policySaveHint.textContent = '策略已保存。';
       els.policySaveHint.dataset.state = 'ok';
       await refreshPolicies();
+      notifyResize();
     } catch (error) {
       els.policySaveHint.textContent = error.message || String(error);
       els.policySaveHint.dataset.state = 'error';
@@ -1252,6 +1283,8 @@ function renderClientScript() {
   els.input.addEventListener('input', () => setHint(els.input.value.trim() ? 'ready' : 'waiting', 'idle'));
   if (initialPolicies?.ok) renderPolicies(initialPolicies);
   if (initialConfiguration?.ok) renderConfiguration(initialConfiguration);
+  notifyResize();
+  if (window.ResizeObserver) new ResizeObserver(notifyResize).observe(document.body);
   loadRecent();
   refreshCockpitSummary();
   refreshAuditTimeline();

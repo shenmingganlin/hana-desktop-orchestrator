@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0-alpha.4 - 2026-07-31
+
+### Fixed
+
+- Widget policy saves now use Hana's shared configuration service when available, keeping the settings page, Widget refresh, and runtime permission decisions synchronized.
+- Added the same ready and resize-request handshake used by notification-hub so narrow sidebar layouts keep policy controls and save feedback inside the host viewport.
+- Kept the atomic file writer as a compatibility fallback for standalone or older hosts without the configuration service.
+
 ## 0.3.0-alpha.3 - 2026-07-31
 
 ### Changed
