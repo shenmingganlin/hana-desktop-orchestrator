@@ -351,7 +351,19 @@ class Program
         try
         {
             if (!el.Current.IsEnabled || el.Current.IsOffscreen) { Console.Error.WriteLine("{\"error\":\"element-not-focusable\"}"); return 1; }
-            el.SetFocus();
+            AutomationElement focusTarget = el;
+            string focusRelation = "target";
+            try
+            {
+                el.SetFocus();
+            }
+            catch
+            {
+                focusTarget = FindFocusableDescendant(el);
+                if (focusTarget == null) throw;
+                focusTarget.SetFocus();
+                focusRelation = "descendant";
+            }
 
             // SetFocus succeeds at the API boundary; verify the actual focused UIA element before returning.
             AutomationElement focused = AutomationElement.FocusedElement;
@@ -374,7 +386,20 @@ class Program
                 return 0;
             }
 
-            if (!RuntimeIdsEqual(targetRuntimeIds, focusedRuntimeIds))
+            bool focusedWithinTarget = RuntimeIdsEqual(targetRuntimeIds, focusedRuntimeIds) || IsDescendant(el, focused);
+            if (!focusedWithinTarget)
+            {
+                AutomationElement descendant = FindFocusableDescendant(el);
+                if (descendant != null)
+                {
+                    descendant.SetFocus();
+                    focused = AutomationElement.FocusedElement;
+                    try { focusedRuntimeIds = focused == null ? null : focused.GetRuntimeId(); } catch { focusedRuntimeIds = null; }
+                    focusedWithinTarget = focused != null && (RuntimeIdsEqual(targetRuntimeIds, focusedRuntimeIds) || IsDescendant(el, focused));
+                    if (focusedWithinTarget) { focusTarget = descendant; focusRelation = "descendant"; }
+                }
+            }
+            if (!focusedWithinTarget)
             {
                 Console.WriteLine("{\"ok\":false,\"error\":\"focused-element-runtime-id-mismatch\"}");
                 return 0;
@@ -404,6 +429,9 @@ class Program
             identity["frameworkId"] = current.FrameworkId ?? "";
             identity["hasKeyboardFocus"] = current.HasKeyboardFocus;
             identity["runtimeId"] = runtimeId;
+            identity["focusedWithinTarget"] = focusedWithinTarget;
+            identity["focusRelation"] = focusRelation;
+            identity["focusedTargetClassName"] = focusTarget.Current.ClassName ?? "";
 
             Dictionary<string, object> result = new Dictionary<string, object>();
             result["ok"] = true;
@@ -418,6 +446,56 @@ class Program
             Console.Error.WriteLine("{\"error\":\"focus-exception\",\"detail\":\"" + JsonEscape(ex.Message) + "\"}");
             return 1;
         }
+    }
+
+    static AutomationElement FindFocusableDescendant(AutomationElement parent)
+    {
+        try
+        {
+            AutomationElementCollection children = parent.FindAll(TreeScope.Children, Condition.TrueCondition);
+            AutomationElement fallback = null;
+            foreach (AutomationElement child in children)
+            {
+                try
+                {
+                    if (!child.Current.IsEnabled || child.Current.IsOffscreen) continue;
+                    if (fallback == null) fallback = child;
+                    ValuePattern value = child.GetCurrentPattern(ValuePattern.Pattern) as ValuePattern;
+                    if (value != null && !value.Current.IsReadOnly) return child;
+                }
+                catch { }
+                AutomationElement nested = FindFocusableDescendant(child);
+                if (nested != null)
+                {
+                    try
+                    {
+                        ValuePattern value = nested.GetCurrentPattern(ValuePattern.Pattern) as ValuePattern;
+                        if (value != null && !value.Current.IsReadOnly) return nested;
+                    }
+                    catch { }
+                    if (fallback == null) fallback = nested;
+                }
+            }
+            return fallback;
+        }
+        catch { return null; }
+    }
+
+    static bool IsDescendant(AutomationElement ancestor, AutomationElement candidate)
+    {
+        if (ancestor == null || candidate == null) return false;
+        try
+        {
+            int[] candidateRuntimeId = candidate.GetRuntimeId();
+            AutomationElementCollection descendants = ancestor.FindAll(TreeScope.Descendants, Condition.TrueCondition);
+            foreach (AutomationElement descendant in descendants)
+            {
+                try { if (RuntimeIdsEqual(descendant.GetRuntimeId(), candidateRuntimeId)) return true; }
+                catch { }
+            }
+        }
+        catch { }
+        return false;
     }
 
     // ── uia-type <hwnd> <name-or-aid|index:N> <text> ──────────

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0-alpha.8 - 2026-07-31
+
+### Fixed
+
+- UIA focus fallback now descends only within the lease-bound target when an outer WinUI container cannot receive focus directly.
+- Focus verification accepts a helper-proven descendant while retaining the top-level window and target signature guards.
+- Added regression coverage for verified descendant focus and rebuilt the native UIA helper.
+
 ## 0.3.0-alpha.7 - 2026-07-31
 
 ### Fixed

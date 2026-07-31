@@ -62,6 +62,13 @@ try {
   });
   check("focus-verification-accepts-child-control-hwnd", matchingChildFocusedElement.ok === true && matchingChildFocusedElement.matchedBy === "automationId", { matchingChildFocusedElement });
 
+  const matchingDescendantFocusedElement = verifyFocusedElementIdentity({
+    handle: "123",
+    targetKey: "",
+    focusedElement: { nativeWindowHandle: 123, topLevelWindowHandle: 123, className: "RichEditD2DPT", hasKeyboardFocus: true, focusedWithinTarget: true, focusRelation: "descendant" },
+  });
+  check("focus-verification-accepts-verified-descendant", matchingDescendantFocusedElement.ok === true && matchingDescendantFocusedElement.matchedBy === "descendant", { matchingDescendantFocusedElement });
+
   const wrongTopLevelFocusedElement = verifyFocusedElementIdentity({
     handle: "123",
     targetKey: "editor",
