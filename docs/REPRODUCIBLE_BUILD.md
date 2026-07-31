@@ -42,6 +42,10 @@ Source: `helper/HanaWin32.cs` (C#, compiled inline via PowerShell at runtime).
 The DLL is compiled on first use by PowerShell's `Add-Type` command.
 The source is the single `.cs` file; no separate build step is needed.
 
+## Deterministic Plugin Package
+
+The plugin ZIP is built by `scripts/build-package.js` with a stable sorted file order and a fixed archive entry timestamp. The package uses an explicit documentation allowlist so repository-only `RELEASE_CANDIDATE_*.md` audit records are not included in the installable artifact. Build the package twice from an unchanged tree and compare the ZIP SHA-256; the hashes must match.
+
 ## Verify Against Shipped Binary
 
 After building, compare SHA-256 hashes:

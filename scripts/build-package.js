@@ -14,12 +14,30 @@ const includePaths = [
   "README.md",
   "CHANGELOG.md",
   "index.js",
-  "docs",
   "helper",
   "lib",
   "scripts",
   "routes",
   "tools",
+];
+
+const packageDocumentationPaths = [
+  "docs/APPROVAL_BUNDLE.md",
+  "docs/APPROVAL_WIDGET.md",
+  "docs/ARCHITECTURE.md",
+  "docs/CURSOR_OVERLAY.md",
+  "docs/LEASE_WORKFLOW.md",
+  "docs/REGION_PREVIEW.md",
+  "docs/RELEASE_HARDENING.md",
+  "docs/RELEASE_NOTES_v0.1.0.md",
+  "docs/REPRODUCIBLE_BUILD.md",
+  "docs/ROADMAP.md",
+  "docs/SAFETY.md",
+  "docs/STALE_GUARD.md",
+  "docs/TOOL_DISCOVERY_NOTES.md",
+  "docs/TYPE_ELEMENT.md",
+  "docs/VERIFY_ACTION.md",
+  "docs/VISUAL_VERIFY.md",
 ];
 
 const forbiddenPackageEntries = [
@@ -82,6 +100,9 @@ function createStaging(packageId) {
   for (const relativePath of includePaths) {
     copyRecursive(path.join(ROOT, relativePath), path.join(stagingDir, relativePath));
   }
+  for (const relativePath of packageDocumentationPaths) {
+    copyRecursive(path.join(ROOT, relativePath), path.join(stagingDir, relativePath));
+  }
   return stagingDir;
 }
 
@@ -102,14 +123,35 @@ function assertCleanStaging(stagingDir) {
 
 function compressPackage(stagingDir, zipPath) {
   removeIfExists(zipPath);
-  const sourceGlob = path.join(stagingDir, "*");
   execFileSync("powershell.exe", [
     "-NoProfile",
     "-ExecutionPolicy",
     "Bypass",
     "-Command",
-    "& { param($source, $destination) Compress-Archive -Path $source -DestinationPath $destination -Force }",
-    sourceGlob,
+    `& {
+      param($source, $destination)
+      Add-Type -AssemblyName System.IO.Compression
+      $fixedTime = [DateTimeOffset]::new(2020, 1, 1, 0, 0, 0, [TimeSpan]::Zero)
+      $files = Get-ChildItem -LiteralPath $source -Recurse -File | Sort-Object FullName
+      $archive = [System.IO.Compression.ZipArchive]::new(
+        [System.IO.File]::Open($destination, [System.IO.FileMode]::Create, [System.IO.FileAccess]::ReadWrite),
+        [System.IO.Compression.ZipArchiveMode]::Create,
+        $false
+      )
+      try {
+        foreach ($file in $files) {
+          $entryName = $file.FullName.Substring($source.Length + 1).Replace('\\', '/')
+          $entry = $archive.CreateEntry($entryName, [System.IO.Compression.CompressionLevel]::Optimal)
+          $entry.LastWriteTime = $fixedTime
+          $input = [System.IO.File]::OpenRead($file.FullName)
+          try {
+            $output = $entry.Open()
+            try { $input.CopyTo($output) } finally { $output.Dispose() }
+          } finally { $input.Dispose() }
+        }
+      } finally { $archive.Dispose() }
+    }`,
+    stagingDir,
     zipPath,
   ], {
     cwd: ROOT,
