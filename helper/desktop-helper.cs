@@ -830,12 +830,16 @@ class Program
             bool hasUnicodeText = false;
             while ((format = Win32.EnumClipboardFormats(format)) != 0)
             {
+                // These are the standard plain-text family and may be emitted
+                // together by Windows: CF_TEXT, CF_OEMTEXT, CF_UNICODETEXT,
+                // and CF_LOCALE. Rich, image, HTML, and custom formats remain
+                // rejected so the fallback never destroys unknown clipboard data.
                 if (format == 13) { hasUnicodeText = true; continue; }
-                if (format == 1) continue; // CF_TEXT is still plain text
-                return false; // refuse to destroy rich or binary clipboard data
+                if (format == 1 || format == 7 || format == 16) continue;
+                return false;
             }
-            if (!hasUnicodeText && Win32.GetClipboardData(1) == IntPtr.Zero) return true;
-            uint textFormat = hasUnicodeText ? 13u : 1u;
+            if (!hasUnicodeText && Win32.GetClipboardData(1) == IntPtr.Zero && Win32.GetClipboardData(7) == IntPtr.Zero) return true;
+            uint textFormat = hasUnicodeText ? 13u : Win32.GetClipboardData(1) != IntPtr.Zero ? 1u : 7u;
             IntPtr data = Win32.GetClipboardData(textFormat);
             if (data == IntPtr.Zero) return true;
             IntPtr locked = Win32.GlobalLock(data);
