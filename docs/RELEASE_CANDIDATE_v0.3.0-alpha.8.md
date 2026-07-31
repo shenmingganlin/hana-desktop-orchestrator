@@ -3,7 +3,7 @@
 Date: 2026-07-31
 Status: Release candidate
 Core baseline commit: `cfb9081ffe96dc0b35e83926fa6f33049c7b6f88`
-RC2 packaging commit: this release-engineering commit
+RC2 packaging commit: `a895544 fix: make alpha.8 package reproducible`
 Core baseline message: `fix: support descendant focus for winui inputs`
 
 ## Artifact
@@ -22,7 +22,7 @@ Core baseline message: `fix: support descendant focus for winui inputs`
 
 - `npm run check:syntax`: passed
 - `npm run check:package`: passed, `69/69`
-- `npm run final-regression`: pending final RC2 run
+- `npm run final-regression`: passed, `50/50`
 - `npm run build:package` repeated twice: identical SHA-256
 - `npm run smoke:package`: passed, `46/46` before final RC2 run
 - `npm run install-smoke:package`: passed, `35/35` before final RC2 run
