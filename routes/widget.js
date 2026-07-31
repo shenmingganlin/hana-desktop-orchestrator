@@ -241,6 +241,8 @@ function servePreviewImage(c) {
 
 function renderWidget(c, ctx) {
   const theme = c.req.query("hana-theme") || "inherit";
+  const initialPolicies = getActionPolicies();
+  const initialPoliciesJson = JSON.stringify(initialPolicies).replace(/</g, "\\u003c").replace(/>/g, "\\u003e").replace(/&/g, "\\u0026");
   return `<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -262,14 +264,14 @@ function renderWidget(c, ctx) {
       <div class="row between">
         <div>
           <div class="label">操作确认策略</div>
-          <div class="policy-headline" id="policyHeadline">正在读取动作注册表。</div>
+          <div class="policy-headline" id="policyHeadline">${escapeHtml((initialPolicies.settings.allowRealInput ? "真实输入总开关已开启 · " : "真实输入总开关未开启 · ") + initialPolicies.policies.length + " 项动作")}</div>
         </div>
         <button type="button" id="refreshPoliciesButton" class="small secondary">刷新</button>
       </div>
       <div class="policy-notice" id="policyNotice">系统底线动作始终需要确认。关闭窗口、剪贴板输入和键盘回退允许修改，但修改为自动执行前会显示风险警告。</div>
-      <div id="policyList" class="policy-list"><div class="empty">正在读取策略。</div></div>
+      <div id="policyList" class="policy-list">${renderPolicyListHtml(initialPolicies)}</div>
       <div class="row between policy-footer">
-        <span class="hint" id="policySaveHint">尚未加载。</span>
+        <span class="hint" id="policySaveHint">策略已加载。</span>
         <button type="button" id="savePoliciesButton">保存策略</button>
       </div>
     </section>
@@ -415,9 +417,27 @@ function renderWidget(c, ctx) {
       <pre id="normalizedOutput">等待解析。</pre>
     </section>
   </main>
+  <script>window.__DESKTOP_ORCHESTRATOR_POLICIES__ = ${initialPoliciesJson};</script>
   <script>${renderClientScript()}</script>
 </body>
 </html>`;
+}
+
+function renderPolicyListHtml(payload) {
+  const groups = [];
+  for (const policy of payload?.policies || []) {
+    let group = groups.find((item) => item.name === policy.group);
+    if (!group) { group = { name: policy.group, items: [] }; groups.push(group); }
+    group.items.push(policy);
+  }
+  const levels = { auto: "自动执行", confirm: "每次确认" };
+  return groups.map((group) => `<section class="policy-group"><div class="policy-group-title">${escapeHtml(group.name)}</div>${group.items.map((policy) => {
+    const locked = policy.hardConfirmation === true || policy.configurable === false;
+    const warning = policy.warningOnChange
+      ? '<span class="policy-warning">修改有风险</span>'
+      : (locked ? '<span class="policy-locked">系统底线</span>' : '');
+    return `<article class="policy-row ${policy.warningOnChange ? "warning-row" : ""}"><div class="policy-copy"><strong>${escapeHtml(policy.title)}</strong><span><code>${escapeHtml(policy.key)}</code> · 默认${escapeHtml(levels[policy.defaultLevel] || policy.defaultLevel)}</span>${warning}<small>${escapeHtml(policy.warning || "")}</small></div><select data-policy-key="${escapeAttr(policy.key)}" ${locked ? "disabled" : ""}><option value="auto" ${policy.effectiveLevel === "auto" ? "selected" : ""}>自动执行</option><option value="confirm" ${policy.effectiveLevel === "confirm" ? "selected" : ""}>每次确认</option></select></article>`;
+  }).join("")}</section>`).join("");
 }
 
 function renderClientScript() {
@@ -482,6 +502,7 @@ function renderClientScript() {
     policies: [],
     dirty: false,
   };
+  const initialPolicies = window.__DESKTOP_ORCHESTRATOR_POLICIES__ || null;
 
   const approvalState = {
     bundle: false,
@@ -544,9 +565,14 @@ function renderClientScript() {
       const payload = await response.json();
       renderPolicies(payload);
     } catch (error) {
-      els.policyList.innerHTML = '<div class="empty">加载失败：' + escapeHtml(error.message || String(error)) + '</div>';
-      els.policySaveHint.textContent = '策略加载失败。';
-      els.policySaveHint.dataset.state = 'error';
+      if (initialPolicies?.ok) {
+        els.policySaveHint.textContent = '策略已加载，刷新接口暂不可用。';
+        els.policySaveHint.dataset.state = 'warn';
+      } else {
+        els.policyList.innerHTML = '<div class="empty">加载失败：' + escapeHtml(error.message || String(error)) + '</div>';
+        els.policySaveHint.textContent = '策略加载失败。';
+        els.policySaveHint.dataset.state = 'error';
+      }
     } finally {
       els.refreshPoliciesButton.disabled = false;
     }
@@ -1125,6 +1151,7 @@ function renderClientScript() {
     if (button) runPreviewButton(button);
   });
   els.input.addEventListener('input', () => setHint(els.input.value.trim() ? 'ready' : 'waiting', 'idle'));
+  if (initialPolicies?.ok) renderPolicies(initialPolicies);
   loadRecent();
   refreshCockpitSummary();
   refreshAuditTimeline();
