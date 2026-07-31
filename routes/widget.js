@@ -64,7 +64,7 @@ function getActionPolicies() {
       warningOnChange: policy.warningOnChange === true,
     })),
     settings: {
-      permissionMode: config.permissionMode || config.trustMode || null,
+      permissionMode: config.permissionMode || "safe",
       allowRealInput: config.allowRealInput === true,
     },
     safety: {
@@ -99,7 +99,7 @@ function getConfigurationSnapshot() {
     sourceOfTruth: "manifest-configuration",
     settings: {
       allowRealInput: config.allowRealInput === true,
-      permissionMode: config.permissionMode || config.trustMode || "safe",
+      permissionMode: config.permissionMode || "safe",
     },
     configuration,
     noDesktopActionExecuted: true,

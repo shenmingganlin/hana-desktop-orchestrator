@@ -87,8 +87,8 @@
         "allowRealMouseMove": {
           "type": "boolean",
           "default": false,
-          "title": "允许鼠标移动",
-          "description": "允许点击、拖动和滚轮操作移动系统鼠标指针。"
+          "title": "允许鼠标真实移动",
+          "description": "允许坐标点击、拖动和滚轮执行真实输入；关闭后只保留 dry-run。"
         },
         "allowKeyboardInput": {
           "type": "boolean",

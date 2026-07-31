@@ -6,10 +6,8 @@ import { DPI_SNIPPET, DPI_AWARE_SNIPPET, JSON_RESULT_PREAMBLE, WINDOW_API_SNIPPE
 
 export const name = "vision-click";
 export const description =
-  "截图目标区域 + 坐标契约 → AI 视觉分析 → 自动点击。\n" +
-  "两步工作流：\n" +
-  "  1. 传入 description + area → 截图上传，AI 分析目标位置\n" +
-  "  2. AI 返回目标坐标 → 自动换算物理像素 → 鼠标点击\n" +
+  "截图并定位目标，返回坐标契约；本工具只观察和定位，不执行点击。\n" +
+  "工作流：传入 description + area → 截图并附带坐标契约 → 由后续 mouse-click-at 调用决定是否执行。\n" +
   "适用于 UIA 无法定位的自定义控件、游戏界面、Web Canvas 等。";
 export const parameters = {
   type: "object",
@@ -193,7 +191,7 @@ export async function execute(input = {}, ctx = {}) {
         width: captureInfo.width,
         height: captureInfo.height,
       },
-      rule: "从截图中找到目标元素，说出它的中心物理坐标 [x, y]。举例：如果发送按钮在截图中央略偏右，大致在 (left+width*0.6, top+height*0.85) 处。用户可以直接用 mouse-click-at 点击该坐标。",
+      rule: "从截图中找到目标元素，说出它的中心物理坐标 [x, y]。举例：如果发送按钮在截图中央略偏右，大致在 (left+width*0.6, top+height*0.85) 处。需要执行时，必须另行调用受窗口守卫保护的 mouse-click-at。",
     };
 
     const content = [
@@ -204,7 +202,7 @@ export async function execute(input = {}, ctx = {}) {
         area,
         screenshot: screenshotInfo,
         coordinateContract,
-        instructions: `截图已生成。请分析截图中的「${description}」位置，然后调用 mouse-click-at 传入换算后的物理像素坐标。`,
+        instructions: `截图已生成。请分析截图中的「${description}」位置并返回换算后的物理像素坐标。本工具不会点击；如需执行，必须另行调用 mouse-click-at。`,
       }, null, 2) },
     ];
 

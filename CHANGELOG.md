@@ -4,6 +4,10 @@
 
 ### Changed
 
+- Removed undocumented `securityMode` and `trustMode` permission aliases; `permissionMode` is now the only configured mode.
+- Raw coordinate mouse actions now require `allowRealMouseMove` in addition to the normal approval and window-guard checks; otherwise they remain dry-run only.
+- `snapshot` now applies `defaultSnapshotFormat` and `maxWindowResults` from plugin configuration.
+
 - Widget now mirrors all 12 plugin settings from the manifest and shows current values from the shared plugin configuration; API keys are masked.
 - Reworked the Widget into a compact mint-and-ink control console with theme-aware dark mode and shorter Chinese labels.
 - Clarified that keyboard and clipboard fallback policy controls confirmation frequency; enabling the fallback remains a separate plugin setting.

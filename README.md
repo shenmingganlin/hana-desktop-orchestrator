@@ -26,6 +26,7 @@ Plugin config (stored in `%APPDATA%/hana-desktop-orchestrator/config.json` or th
 | Key | Description | Default |
 | --- | --- | --- |
 | `allowRealInput` | Master switch for real mouse/keyboard actions. It must be explicitly enabled before any mode can execute desktop input. | `false` |
+| `allowRealMouseMove` | Allows raw coordinate click, drag, and wheel actions to execute real input; when disabled they remain dry-run only. | `false` |
 | `permissionMode` | Overall permission boundary: `safe`, `auto-review`, or `full-access`. It cannot enable real input by itself. | `safe` |
 | `confirmationPolicy` | Legacy global confirmation preset. New action-level overrides from the sidebar take precedence for registered actions. | empty |
 | `actionConfirmation` | Object containing explicit per-action overrides such as `window.close`, `input.keyboard-fallback`, and `input.clipboard-fallback`, with values `auto` or `confirm`. | `{}` |

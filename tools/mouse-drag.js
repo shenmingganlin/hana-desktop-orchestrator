@@ -61,7 +61,6 @@ export async function execute(input = {}, toolCtx = {}) {
   const label = String(input.label || "").slice(0, 60);
 
   const config = resolvePluginConfig(toolCtx);
-  const securityMode = String(config.securityMode || "normal").toLowerCase();
   const approval = requireRealInputApproval(input, config, {
     actionType: "mouse-drag",
     action: { type: "real-mouse-drag", button },
@@ -113,13 +112,14 @@ export async function execute(input = {}, toolCtx = {}) {
     },
   });
   const initialApprovalBundleSave = saveApprovalBundle(approvalBundle, { source: "mouse-drag" });
-  let actionAllowed = approval.allowed && guard.allowed && initialApprovalBundleSave?.ok === true;
+  const mouseMoveAllowed = config.allowRealMouseMove === true;
+  let actionAllowed = approval.allowed && guard.allowed && mouseMoveAllowed && initialApprovalBundleSave?.ok === true;
   let finalGuard = null;
   let finalApprovalBundleSave = initialApprovalBundleSave;
   let cursorFlight = null;
   let dragResult = null;
   let sessionConsumption = input.sessionId ? { ok: false, pending: true } : { ok: true, skipped: true };
-  let blockedBy = !approval.allowed ? approval.reason : (!guard.allowed ? "click-guard" : (!initialApprovalBundleSave?.ok ? "approval-bundle-save-failed" : null));
+  let blockedBy = !approval.allowed ? approval.reason : (!guard.allowed ? "click-guard" : (!mouseMoveAllowed ? "allowRealMouseMove-disabled" : (!initialApprovalBundleSave?.ok ? "approval-bundle-save-failed" : null)));
   if (actionAllowed) {
     if (input.showCursor !== false) {
       try {
@@ -199,8 +199,7 @@ export async function execute(input = {}, toolCtx = {}) {
     sessionConsumption,
     config: {
       allowRealInput: approval.allowed,
-      allowRealMouseMove: config.allowRealMouseMove === true || securityMode === "maximum",
-      securityMode: config.securityMode || "normal",
+      allowRealMouseMove: config.allowRealMouseMove === true,
     },
     safety: {
       mode: 2,

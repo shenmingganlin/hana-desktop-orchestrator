@@ -2,6 +2,7 @@ import fs from "fs";
 import os from "os";
 import { parseJsonOutput, runHelper } from "../lib/powershell.js";
 import { buildCoordinateContract } from "../lib/coord-contract.js";
+import { resolvePluginConfig } from "../lib/safety.js";
 
 export const name = "snapshot";
 export const description = "采集桌面状态：DPI、活动窗口、可见窗口列表，并可选返回一张全屏截图。";
@@ -31,11 +32,14 @@ export const parameters = {
 
 export async function execute(input = {}, toolCtx = {}) {
   const includeScreenshot = input.includeScreenshot === true;
-  const maxWindows = Math.min(Math.max(Number(input.maxWindows || 30), 1), 100);
+  const config = resolvePluginConfig(toolCtx);
+  const configuredMaxWindows = Number(config.maxWindowResults);
+  const maxWindows = Math.min(Math.max(Number(input.maxWindows || configuredMaxWindows || 30), 1), 100);
+  const format = input.format === "jpeg" || config.defaultSnapshotFormat === "jpeg" ? "jpeg" : "png";
 
   // Use snapshot-full: screenshot + list-windows + dpi in one helper.exe call (~28% faster)
   const fullResult = includeScreenshot
-    ? parseJsonOutput(runHelper("snapshot-full"), "snapshot-full")
+    ? parseJsonOutput(runHelper("snapshot-full", ["--format", format]), "snapshot-full")
     : parseJsonOutput(runHelper("list-windows"), "list-windows");
 
   let screen, windows, foregroundHandle, screenshotPath;
@@ -94,7 +98,7 @@ export async function execute(input = {}, toolCtx = {}) {
   }
 
   const content = [{ type: "text", text: JSON.stringify(snapshot, null, 2) }];
-  const details = { action: "snapshot", snapshot };
+  const details = { action: "snapshot", format, maxWindows, snapshot };
 
   if (includeScreenshot && snapshot.screenshotPath && fs.existsSync(snapshot.screenshotPath) && toolCtx.stageFile) {
     const mediaItem = toolCtx.stageFile({
