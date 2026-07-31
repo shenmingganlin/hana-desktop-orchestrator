@@ -715,7 +715,7 @@ function renderClientScript() {
     let acknowledgeWarnings = false;
     if (changedWarnings.length > 0) {
       const names = changedWarnings.map((policy) => policy.title).join('、');
-      acknowledgeWarnings = window.confirm('你正在修改高风险动作：' + names + '。\n\n' + changedWarnings.map((policy) => policy.warning).join('\n') + '\n\n确认保存这些修改吗？');
+      acknowledgeWarnings = window.confirm('你正在修改高风险动作：' + names + '。\\n\\n' + changedWarnings.map((policy) => policy.warning).join('\\n') + '\\n\\n确认保存这些修改吗？');
       if (!acknowledgeWarnings) return;
     }
     [els.savePoliciesTopButton, els.savePoliciesButton].forEach((button) => { if (button) button.disabled = true; });

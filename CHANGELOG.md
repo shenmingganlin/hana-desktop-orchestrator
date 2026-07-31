@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0-alpha.6 - 2026-07-31
+
+### Fixed
+
+- Escaped newlines in the generated Widget confirmation prompt so the final inline client script parses in Hana and registers all button handlers.
+- Added a generated-client-script syntax regression check to prevent template escaping errors from reaching the installed Widget.
+
 ## 0.3.0-alpha.5 - 2026-07-31
 
 ### Fixed

@@ -37,6 +37,7 @@ const syntaxFiles = [
   "tools/type-element.js",
   "scripts/text-input-matrix.js",
   "scripts/native-safe-smoke.js",
+  "scripts/widget-render-check.js",
   "tools/focus-window.js",
   "tools/manage-window.js",
   "tools/protected-click.js",
@@ -95,6 +96,10 @@ const steps = [
   {
     name: "native-safe-smoke",
     command: [nodeCommand, ["scripts/native-safe-smoke.js"]],
+  },
+  {
+    name: "widget-render-check",
+    command: [nodeCommand, ["scripts/widget-render-check.js"]],
   },
 ];
 
