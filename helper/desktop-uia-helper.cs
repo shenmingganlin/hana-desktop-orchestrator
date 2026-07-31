@@ -416,7 +416,7 @@ class Program
         }
     }
 
-    // ── uia-type <hwnd> <name-or-aid> <text> ───────────────────
+    // ── uia-type <hwnd> <name-or-aid|index:N> <text> ──────────
     static int UiaType(string[] args)
     {
         long raw;
@@ -471,6 +471,10 @@ class Program
 
     static AutomationElement FindByNameOrAid(AutomationElement root, string target)
     {
+        int requestedIndex;
+        if (TryParseElementIndex(target, out requestedIndex))
+            return FindByIndex(root, requestedIndex);
+
         PropertyCondition nameCond = new PropertyCondition(AutomationElement.NameProperty, target, PropertyConditionFlags.IgnoreCase);
         AutomationElement found = root.FindFirst(TreeScope.Descendants, nameCond);
         if (found != null) return found;
@@ -478,6 +482,39 @@ class Program
         PropertyCondition aidCond = new PropertyCondition(AutomationElement.AutomationIdProperty, target, PropertyConditionFlags.IgnoreCase);
         found = root.FindFirst(TreeScope.Descendants, aidCond);
         return found;
+    }
+
+    static bool TryParseElementIndex(string target, out int index)
+    {
+        index = -1;
+        if (String.IsNullOrEmpty(target)) return false;
+        string value = target.StartsWith("index:", StringComparison.OrdinalIgnoreCase)
+            ? target.Substring(6)
+            : target.StartsWith("#", StringComparison.Ordinal) ? target.Substring(1) : null;
+        return value != null && Int32.TryParse(value, out index) && index >= 0;
+    }
+
+    static AutomationElement FindByIndex(AutomationElement parent, int requestedIndex)
+    {
+        int current = 0;
+        return FindByIndexRecursive(parent, requestedIndex, ref current);
+    }
+
+    static AutomationElement FindByIndexRecursive(AutomationElement parent, int requestedIndex, ref int current)
+    {
+        try
+        {
+            AutomationElementCollection children = parent.FindAll(TreeScope.Children, Condition.TrueCondition);
+            foreach (AutomationElement child in children)
+            {
+                if (current == requestedIndex) return child;
+                current++;
+                AutomationElement found = FindByIndexRecursive(child, requestedIndex, ref current);
+                if (found != null) return found;
+            }
+        }
+        catch { }
+        return null;
     }
 
     static int Usage(string usage)

@@ -245,16 +245,18 @@ export async function execute(input = {}, toolCtx = {}) {
     if (!sessionConsumption.ok) {
       return JSON.stringify({ dryRun: true, approval: effectiveApproval, plan, approvalBundleSave, sessionConsumption }, null, 2);
     }
-    const targetKey = storedElement?.automationId || storedElement?.name || inspectResult.element?.automationId || inspectResult.element?.name || String(targetIndex);
+    // The snapshot index is produced by the same UIA tree walk as the helper
+    // and avoids crossing the Windows process boundary with localized names.
+    const targetKey = `index:${targetIndex}`;
     setResult = parseJsonOutput(runUiaHelper("uia-type", [effectiveHandle, targetKey], { input: input.text }), "type-element");
     if (setResult?.ok && storedSnapshot) {
       try { saveSnapshot(storedSnapshot); } catch { /* best-effort TTL extension */ }
     }
   } else if (actionAllowed && signatureVerified && !canSetValue && fallbackPlan?.validation?.ok) {
-    const targetKey = storedElement?.automationId || storedElement?.name || inspectResult.element?.automationId || inspectResult.element?.name || "";
-    focusResult = targetKey
-      ? parseJsonOutput(runUiaHelper("uia-focus", [effectiveHandle, targetKey]), "type-element-focus")
-      : { ok: false, error: "fallback-target-key-missing" };
+    // Keep fallback focus bound to the same UIA tree index used for typing;
+    // localized names are not stable across the helper process boundary.
+    const targetKey = `index:${targetIndex}`;
+    focusResult = parseJsonOutput(runUiaHelper("uia-focus", [effectiveHandle, targetKey]), "type-element-focus");
     focusVerification = focusResult?.ok
       ? verifyFocusedElementIdentity({ focusedElement: focusResult.focusedElement, handle: effectiveHandle, targetKey })
       : { ok: false, reason: "target-element-focus-failed", focusResult };
