@@ -4,12 +4,13 @@ Date: 2026-07-31
 Status: Release candidate
 Core baseline commit: `cfb9081ffe96dc0b35e83926fa6f33049c7b6f88`
 RC2 packaging commit: `a895544 fix: make alpha.8 package reproducible`
+Documentation commit: `300372b docs: rewrite README in Chinese`
 Core baseline message: `fix: support descendant focus for winui inputs`
 
 ## Artifact
 
 - Package: `dist/desktop-orchestrator-0.3.0-alpha.8.zip`
-- SHA-256: `F4922D3FA9FAF2D174FB6833B3755DF896E4D4E4FA31F2374DCA7D92EE4D5D33`
+- SHA-256: `96B0638AC6FA58616D97350AEFDA8C3442C07E1CBE3D971387ECECCE32EC776B`
 - Archive file count: `139`
 - Manifest version: `0.3.0-alpha.8`
 - Package version: `0.3.0-alpha.8`
@@ -41,7 +42,7 @@ Core baseline message: `fix: support descendant focus for winui inputs`
 
 ## Packaging Evidence
 
-The package builder now produces deterministic ZIP bytes by using a stable sorted file order and a fixed entry timestamp. The package includes an explicit documentation allowlist; RC audit records remain repository evidence and are excluded from the installable artifact. Two consecutive builds produced the same SHA-256: `F4922D3FA9FAF2D174FB6833B3755DF896E4D4E4FA31F2374DCA7D92EE4D5D33`.
+The package builder now produces deterministic ZIP bytes by using a stable sorted file order and a fixed entry timestamp. The package includes an explicit documentation allowlist; RC audit records remain repository evidence and are excluded from the installable artifact. Two consecutive builds produced the same SHA-256: `96B0638AC6FA58616D97350AEFDA8C3442C07E1CBE3D971387ECECCE32EC776B`.
 
 ## Safety Evidence
 
