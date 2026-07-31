@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0-alpha.7 - 2026-07-31
+
+### Fixed
+
+- Replaced the iframe-incompatible native `window.confirm` risk prompt with an in-Widget confirmation panel.
+- Risky policy changes now show the warning inline; only the explicit “确认保存” action sends `acknowledgeWarnings: true`.
+- Added regression coverage proving risky changes remain blocked without acknowledgement and save after acknowledgement.
+
 ## 0.3.0-alpha.6 - 2026-07-31
 
 ### Fixed

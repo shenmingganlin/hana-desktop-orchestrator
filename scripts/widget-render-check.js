@@ -27,8 +27,34 @@ const clientScripts = [...String(html).matchAll(/<script(?:[^>]*)>([\s\S]*?)<\/s
 assert.equal(clientScripts.length, 1, "Widget should contain one client script");
 const clientScript = clientScripts[0];
 assert.match(clientScript, /savePoliciesTopButton/);
+assert.match(clientScript, /acknowledgePolicyButton/);
+assert.match(clientScript, /确认风险修改/);
 assert.match(clientScript, /resize-request/);
+assert.doesNotMatch(clientScript, /window\\.confirm/);
 new vm.Script(clientScript, { filename: "desktop-orchestrator-widget-client.js" });
+
+const savedPayloads = [];
+const apiRoutes = {};
+const apiApp = {
+  get(route, handler) { apiRoutes[`GET ${route}`] = handler; },
+  post(route, handler) { apiRoutes[`POST ${route}`] = handler; },
+};
+registerWidgetRoutes(apiApp, {
+  pluginId: "desktop-orchestrator",
+  config: { setMany(payload) { savedPayloads.push(payload); } },
+});
+const blocked = await apiRoutes["POST /api/action-policies"]({
+  req: { json: async () => ({ actionConfirmation: { "window.close": "auto" } }) },
+  json(payload) { return payload; },
+});
+assert.equal(blocked.blocked, true);
+assert.equal(savedPayloads.length, 0);
+const acknowledged = await apiRoutes["POST /api/action-policies"]({
+  req: { json: async () => ({ actionConfirmation: { "window.close": "auto" }, acknowledgeWarnings: true }) },
+  json(payload) { return payload; },
+});
+assert.equal(acknowledged.ok, true);
+assert.equal(savedPayloads.length, 1);
 
 const result = {
   ok: true,
@@ -41,5 +67,7 @@ const result = {
   noScreenshotCaptured: true,
   noUiaInvoke: true,
   noMouseOrKeyboardInput: true,
+  riskWarningBlocksWithoutAcknowledgement: true,
+  riskWarningAllowsAcknowledgedSave: true,
 };
 console.log(JSON.stringify(result, null, 2));

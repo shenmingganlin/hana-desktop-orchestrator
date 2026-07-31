@@ -348,6 +348,14 @@ function renderWidget(c, ctx) {
         </div>
       </div>
       <div class="policy-notice" id="policyNotice">系统底线动作始终需要确认。关闭窗口、键盘回退和剪贴板回退改为自动执行前会显示风险警告。</div>
+      <div id="policyWarningDialog" class="policy-warning-dialog" hidden>
+        <strong>确认风险修改</strong>
+        <div id="policyWarningText"></div>
+        <div class="actions compact-actions">
+          <button type="button" id="acknowledgePolicyButton">确认保存</button>
+          <button type="button" id="cancelPolicyButton" class="secondary">取消</button>
+        </div>
+      </div>
       <div id="policyList" class="policy-list">${renderPolicyListHtml(initialPolicies)}</div>
       <div class="row between policy-footer">
         <span class="hint" id="policySaveHint">策略已加载。</span>
@@ -586,6 +594,10 @@ function renderClientScript() {
     savePoliciesTopButton: document.getElementById('savePoliciesTopButton'),
     savePoliciesButton: document.getElementById('savePoliciesButton'),
     policySaveHint: document.getElementById('policySaveHint'),
+    policyWarningDialog: document.getElementById('policyWarningDialog'),
+    policyWarningText: document.getElementById('policyWarningText'),
+    acknowledgePolicyButton: document.getElementById('acknowledgePolicyButton'),
+    cancelPolicyButton: document.getElementById('cancelPolicyButton'),
   };
 
   const policyState = {
@@ -710,14 +722,28 @@ function renderClientScript() {
     }
   }
 
-  async function savePolicies() {
+  function showPolicyWarning(changedWarnings) {
+    els.policyWarningText.textContent = changedWarnings.map((policy) => policy.title + '：' + policy.warning).join('\\n');
+    els.policyWarningDialog.hidden = false;
+    els.policySaveHint.textContent = '请确认风险修改后再保存。';
+    els.policySaveHint.dataset.state = 'warn';
+    notifyResize();
+    els.policyWarningDialog.scrollIntoView({ block: 'nearest' });
+  }
+
+  function hidePolicyWarning() {
+    els.policyWarningDialog.hidden = true;
+    els.policyWarningText.textContent = '';
+    notifyResize();
+  }
+
+  async function savePolicies({ acknowledgeWarnings = false } = {}) {
     const changedWarnings = policyState.policies.filter((policy) => policy.warningOnChange && policy.effectiveLevel !== policy.defaultLevel);
-    let acknowledgeWarnings = false;
-    if (changedWarnings.length > 0) {
-      const names = changedWarnings.map((policy) => policy.title).join('、');
-      acknowledgeWarnings = window.confirm('你正在修改高风险动作：' + names + '。\\n\\n' + changedWarnings.map((policy) => policy.warning).join('\\n') + '\\n\\n确认保存这些修改吗？');
-      if (!acknowledgeWarnings) return;
+    if (changedWarnings.length > 0 && acknowledgeWarnings !== true) {
+      showPolicyWarning(changedWarnings);
+      return;
     }
+    hidePolicyWarning();
     [els.savePoliciesTopButton, els.savePoliciesButton].forEach((button) => { if (button) button.disabled = true; });
     try {
       const actionConfirmation = Object.fromEntries(policyState.policies.filter((policy) => policy.configurable && policy.effectiveLevel !== policy.defaultLevel).map((policy) => [policy.key, policy.effectiveLevel]));
@@ -1274,7 +1300,13 @@ function renderClientScript() {
   els.refreshPoliciesButton.addEventListener('click', refreshPolicies);
   els.refreshConfigurationButton.addEventListener('click', refreshConfiguration);
   [els.savePoliciesTopButton, els.savePoliciesButton].forEach((button) => {
-    if (button) button.addEventListener('click', savePolicies);
+    if (button) button.addEventListener('click', () => savePolicies());
+  });
+  els.acknowledgePolicyButton.addEventListener('click', () => savePolicies({ acknowledgeWarnings: true }));
+  els.cancelPolicyButton.addEventListener('click', () => {
+    hidePolicyWarning();
+    els.policySaveHint.textContent = '已取消风险修改保存。';
+    els.policySaveHint.dataset.state = 'ok';
   });
   els.replayOverlayButton.addEventListener('click', () => {
     try {
@@ -1347,6 +1379,10 @@ p { margin: 6px 0 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
 .configuration-value span { color: var(--accent-strong); font-size: 12px; font-weight: 800; }
 .policy-headline { margin-top: 4px; font-size: 16px; font-weight: 800; }
 .policy-notice { padding: 9px 10px; border-left: 3px solid var(--warn); color: var(--text); background: rgba(180,83,9,.08); font-size: 12px; line-height: 1.45; }
+.policy-warning-dialog { display: grid; gap: 8px; padding: 10px; border: 1px solid rgba(180,83,9,.46); border-left: 3px solid var(--warn); border-radius: 8px; color: var(--text); background: rgba(180,83,9,.10); font-size: 12px; line-height: 1.5; white-space: pre-line; }
+.policy-warning-dialog[hidden] { display: none; }
+.policy-warning-dialog strong { font-size: 13px; }
+.policy-warning-dialog .actions { margin-top: 2px; }
 .policy-list { display: grid; gap: 12px; scrollbar-width: thin; }
 .policy-group { display: grid; gap: 7px; }
 .policy-group-title { color: var(--muted); font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
