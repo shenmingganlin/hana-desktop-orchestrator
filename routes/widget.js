@@ -342,13 +342,16 @@ function renderWidget(c, ctx) {
           <div class="label">操作确认策略</div>
           <div class="policy-headline" id="policyHeadline">${escapeHtml((initialPolicies.settings.allowRealInput ? "真实输入总开关已开启 · " : "真实输入总开关未开启 · ") + initialPolicies.policies.length + " 项动作")}</div>
         </div>
-        <button type="button" id="refreshPoliciesButton" class="small secondary">刷新</button>
+        <div class="policy-toolbar-actions">
+          <button type="button" id="savePoliciesTopButton">保存策略</button>
+          <button type="button" id="refreshPoliciesButton" class="small secondary">刷新</button>
+        </div>
       </div>
       <div class="policy-notice" id="policyNotice">系统底线动作始终需要确认。关闭窗口、键盘回退和剪贴板回退改为自动执行前会显示风险警告。</div>
       <div id="policyList" class="policy-list">${renderPolicyListHtml(initialPolicies)}</div>
       <div class="row between policy-footer">
         <span class="hint" id="policySaveHint">策略已加载。</span>
-        <button type="button" id="savePoliciesButton">保存策略</button>
+        <button type="button" id="savePoliciesButton" class="secondary">保存策略</button>
       </div>
     </section>
 
@@ -580,6 +583,7 @@ function renderClientScript() {
     refreshConfigurationButton: document.getElementById('refreshConfigurationButton'),
     policyList: document.getElementById('policyList'),
     refreshPoliciesButton: document.getElementById('refreshPoliciesButton'),
+    savePoliciesTopButton: document.getElementById('savePoliciesTopButton'),
     savePoliciesButton: document.getElementById('savePoliciesButton'),
     policySaveHint: document.getElementById('policySaveHint'),
   };
@@ -714,7 +718,7 @@ function renderClientScript() {
       acknowledgeWarnings = window.confirm('你正在修改高风险动作：' + names + '。\n\n' + changedWarnings.map((policy) => policy.warning).join('\n') + '\n\n确认保存这些修改吗？');
       if (!acknowledgeWarnings) return;
     }
-    els.savePoliciesButton.disabled = true;
+    [els.savePoliciesTopButton, els.savePoliciesButton].forEach((button) => { if (button) button.disabled = true; });
     try {
       const actionConfirmation = Object.fromEntries(policyState.policies.filter((policy) => policy.configurable && policy.effectiveLevel !== policy.defaultLevel).map((policy) => [policy.key, policy.effectiveLevel]));
       const response = await pluginFetch('./api/action-policies', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ actionConfirmation, acknowledgeWarnings }) });
@@ -728,7 +732,7 @@ function renderClientScript() {
       els.policySaveHint.textContent = error.message || String(error);
       els.policySaveHint.dataset.state = 'error';
     } finally {
-      els.savePoliciesButton.disabled = false;
+      [els.savePoliciesTopButton, els.savePoliciesButton].forEach((button) => { if (button) button.disabled = false; });
     }
   }
 
@@ -1269,7 +1273,9 @@ function renderClientScript() {
   els.refreshTimelineButton.addEventListener('click', refreshAuditTimeline);
   els.refreshPoliciesButton.addEventListener('click', refreshPolicies);
   els.refreshConfigurationButton.addEventListener('click', refreshConfiguration);
-  els.savePoliciesButton.addEventListener('click', savePolicies);
+  [els.savePoliciesTopButton, els.savePoliciesButton].forEach((button) => {
+    if (button) button.addEventListener('click', savePolicies);
+  });
   els.replayOverlayButton.addEventListener('click', () => {
     try {
       const bundle = parseMaybeWrappedBundle(els.input.value.trim());
@@ -1323,6 +1329,10 @@ p { margin: 6px 0 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
 .card.danger { border-color: rgba(194,65,61,.30); background: rgba(194,65,61,.06); }
 .checklist-card { display: grid; gap: 10px; }
 .settings-card, .policy-card { display: grid; gap: 10px; }
+.policy-toolbar-actions { display: flex; align-items: center; justify-content: flex-end; gap: 7px; flex-wrap: wrap; }
+.policy-list { max-height: min(58vh, 560px); overflow: auto; padding-right: 2px; }
+.policy-footer { position: sticky; bottom: 0; z-index: 4; margin: 0 -2px -2px; padding: 10px 2px 2px; border-top: 1px solid var(--border); background: color-mix(in srgb, var(--panel) 94%, transparent); }
+.policy-footer button { min-width: 92px; }
 .settings-card { border-color: rgba(15,118,110,.28); }
 .policy-card { border-color: rgba(15,118,110,.20); }
 .settings-headline { margin-top: 4px; font-size: 15px; font-weight: 800; }
@@ -1337,7 +1347,7 @@ p { margin: 6px 0 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
 .configuration-value span { color: var(--accent-strong); font-size: 12px; font-weight: 800; }
 .policy-headline { margin-top: 4px; font-size: 16px; font-weight: 800; }
 .policy-notice { padding: 9px 10px; border-left: 3px solid var(--warn); color: var(--text); background: rgba(180,83,9,.08); font-size: 12px; line-height: 1.45; }
-.policy-list { display: grid; gap: 12px; }
+.policy-list { display: grid; gap: 12px; scrollbar-width: thin; }
 .policy-group { display: grid; gap: 7px; }
 .policy-group-title { color: var(--muted); font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
 .policy-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 9px 10px; border: 1px solid var(--border); border-radius: 8px; background: rgba(23,61,55,.035); }

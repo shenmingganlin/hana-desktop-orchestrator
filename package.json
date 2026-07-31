@@ -1,6 +1,6 @@
 {
   "name": "hana-desktop-orchestrator",
-  "version": "0.3.0-alpha.4",
+  "version": "0.3.0-alpha.5",
   "private": false,
   "type": "module",
   "description": "Guarded Windows desktop control platform for HanaAgent.",

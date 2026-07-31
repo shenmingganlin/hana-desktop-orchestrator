@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0-alpha.5 - 2026-07-31
+
+### Fixed
+
+- Added a visible policy save action beside the policy heading and kept the footer save action available inside a sticky policy footer.
+- Limited the policy list to its own scroll region so long action registries cannot push the save action outside the Widget viewport.
+- Both save actions now share the same guarded save handler and disabled state while a request is in flight.
+
 ## 0.3.0-alpha.4 - 2026-07-31
 
 ### Fixed
