@@ -24,80 +24,83 @@
         "visionApiBase": {
           "type": "string",
           "default": "",
-          "title": "视觉模型 API 地址",
-          "description": "视觉定位/点击使用的模型 API 基地址。支持 OpenAI 兼容格式（/v1/chat/completions）或 Anthropic 兼容格式（/messages）。使用 MiniMax M3 时填 https://api.minimaxi.com/anthropic，使用其他模型时填对应供应商地址。"
+          "title": "视觉 API 地址",
+          "description": "视觉定位使用的 API 地址，需与接口格式和模型匹配。"
         },
         "visionApiKey": {
           "type": "string",
           "default": "",
-          "title": "视觉模型 API 密钥",
-          "description": "视觉模型供应商的 API Key。对应 visionApiBase 的鉴权凭证。"
+          "title": "视觉 API 密钥",
+          "description": "视觉模型服务的鉴权密钥。"
         },
         "visionModel": {
           "type": "string",
           "default": "",
-          "title": "视觉模型名称",
-          "description": "模型标识符，如 MiniMax-M3、gpt-4o、gemini-2.0-flash-vision。需要与 apiBase 兼容。"
+          "title": "视觉模型",
+          "description": "视觉定位使用的模型名称。"
         },
         "allowRealInput": {
           "type": "boolean",
           "default": false,
-          "title": "允许真实桌面输入",
-          "description": "关闭时所有输入工具仅返回 dry-run 计划，不执行真实点击、键入或鼠标移动。开发调试期间建议关闭，生产使用时需开启并配合权限模式使用。"
+          "title": "允许真实输入",
+          "description": "关闭后只生成 dry-run 计划，不执行真实点击、输入或鼠标操作。"
         },
         "permissionMode": {
           "type": "string",
           "default": "safe",
           "enum": ["safe", "auto-review", "full-access"],
-          "title": "桌面控制权限模式",
-          "description": "控制真实桌面输入的总体权限。需要同时开启允许真实桌面输入。"
+          "enumTitles": ["安全", "自动复核", "全权"],
+          "title": "权限模式",
+          "description": "控制真实动作的默认权限，需同时开启真实输入。"
         },
         "confirmationPolicy": {
           "type": "string",
           "default": "",
           "enum": ["", "all-real-actions", "sensitive-and-destructive", "destructive-only"],
-          "title": "真实动作确认级别（兼容设置）",
-          "description": "旧版全局确认级别设置。新的动作级策略优先由侧边栏管理。"
+          "enumTitles": ["按权限模式决定", "全部真实动作", "敏感和破坏性动作", "仅破坏性动作"],
+          "title": "确认级别（兼容）",
+          "description": "旧版全局确认设置；动作级策略优先。"
         },
         "actionConfirmation": {
           "type": "object",
           "default": {},
           "additionalProperties": { "type": "string", "enum": ["auto", "confirm"] },
-          "title": "动作级确认覆盖",
-          "description": "由桌面控制侧边栏写入。只保存用户明确修改的动作；系统底线动作不可设置为自动执行。"
+          "title": "动作确认覆盖",
+          "description": "保存侧边栏中的动作级修改；系统底线动作始终需要确认。"
         },
         "defaultSnapshotFormat": {
           "type": "string",
           "default": "png",
           "enum": ["png", "jpeg"],
-          "title": "截图保存格式",
-          "description": "PNG：无损画质，适合文字、UI 细节清晰的场景，文件较大（2560x1600 约 2-4MB）。JPEG：有损压缩 quality 85，视觉定位和肉眼查看差异很小，文件缩小约 80%（同屏约 300-500KB），适合远程操控和视觉模型上传场景。"
+          "enumTitles": ["PNG", "JPEG"],
+          "title": "截图格式",
+          "description": "PNG 清晰但文件较大；JPEG 更省空间，适合视觉定位。"
         },
         "maxWindowResults": {
           "type": "integer",
           "default": 40,
           "minimum": 1,
           "maximum": 200,
-          "title": "窗口列表最大数量",
-          "description": "snapshot 和 list-windows 返回的窗口数量上限。桌面窗口较多时可以减少此值加快响应。"
+          "title": "窗口列表上限",
+          "description": "限制 snapshot 和 list-windows 返回的窗口数量。"
         },
         "allowRealMouseMove": {
           "type": "boolean",
           "default": false,
-          "title": "允许鼠标真实移动",
-          "description": "开启后点击/拖动/滚轮操作会真实移动系统鼠标指针（SetCursorPos）。关闭时仅后台发送点击事件，鼠标指针不移动。"
+          "title": "允许鼠标移动",
+          "description": "允许点击、拖动和滚轮操作移动系统鼠标指针。"
         },
         "allowKeyboardInput": {
           "type": "boolean",
           "default": false,
-          "title": "允许键盘输入",
-          "description": "开启后允许在 UIA 元素先获得焦点且目标窗口保持前台时使用 Unicode 键盘回退。单独控制，不与鼠标输入共享同一个开关。"
+          "title": "允许键盘回退",
+          "description": "UIA 输入不可用时，允许在焦点和前台校验通过后发送键盘事件。"
         },
         "allowClipboardInput": {
           "type": "boolean",
           "default": false,
-          "title": "允许剪贴板回退输入",
-          "description": "开启后允许使用受保护的纯文本剪贴板粘贴回退。富文本或其他剪贴板格式会直接拒绝，且只在未发生外部剪贴板变化时尝试恢复。"
+          "title": "允许剪贴板回退",
+          "description": "UIA 输入不可用时，允许使用受保护的纯文本剪贴板粘贴。"
         }
       }
     }

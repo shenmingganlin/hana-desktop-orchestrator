@@ -1,6 +1,7 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
+import { fileURLToPath } from "url";
 import { getRecentApprovalBundle } from "../lib/approval-store.js";
 import { getRecentApprovalToken, saveApprovalToken } from "../lib/approval-token-store.js";
 import { runExecutionPreflight } from "../lib/execution-preflight.js";
@@ -22,13 +23,15 @@ import {
   saveActionConfirmationConfig,
 } from "../lib/action-policy.js";
 
-const TITLE = "桌面审批";
+const TITLE = "桌面控制";
 const PREVIEW_DIR = path.join(os.tmpdir(), "hana-desktop-orchestrator");
+const MANIFEST_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "manifest.json");
 
 export default function registerApprovalWidgetRoutes(app, ctx) {
   app.get("/widget", (c) => c.html(renderWidget(c, ctx)));
   app.get("/api/recent", (c) => c.json(getRecentApprovalBundle()));
   app.get("/api/action-policies", (c) => c.json(getActionPolicies()));
+  app.get("/api/configuration", (c) => c.json(getConfigurationSnapshot()));
   app.post("/api/action-policies", async (c) => c.json(await saveActionPoliciesRequest(c)));
   app.get("/api/approval-tokens/recent", (c) => c.json(getRecentApprovalToken()));
   app.get("/api/audit-timeline", (c) => c.json(readAuditTimeline({ limit: Number(c.req.query("limit")) || 30 })));
@@ -70,6 +73,52 @@ function getActionPolicies() {
       noDesktopActionExecuted: true,
     },
   };
+}
+
+function getConfigurationSnapshot() {
+  let manifest = {};
+  try {
+    manifest = JSON.parse(fs.readFileSync(MANIFEST_PATH, "utf8"));
+  } catch {
+    return { ok: false, reason: "manifest-read-failed", configuration: [], noDesktopActionExecuted: true };
+  }
+  const config = loadDesktopOrchestratorConfig();
+  const properties = manifest?.contributes?.configuration?.properties || {};
+  const configuration = Object.entries(properties).map(([key, definition]) => ({
+    key,
+    title: definition.title || key,
+    description: definition.description || "",
+    type: definition.type || "string",
+    currentValue: formatConfigurationValue(key, config[key], definition),
+    defaultValue: formatConfigurationValue(key, definition.default, definition),
+    configured: Object.prototype.hasOwnProperty.call(config, key),
+  }));
+  return {
+    ok: true,
+    type: "desktop-orchestrator-configuration-snapshot",
+    sourceOfTruth: "manifest-configuration",
+    settings: {
+      allowRealInput: config.allowRealInput === true,
+      permissionMode: config.permissionMode || config.trustMode || "safe",
+    },
+    configuration,
+    noDesktopActionExecuted: true,
+  };
+}
+
+function formatConfigurationValue(key, value, definition = {}) {
+  if (key === "visionApiKey") return value ? "已设置" : "未设置";
+  if (key === "actionConfirmation") {
+    const count = value && typeof value === "object" && !Array.isArray(value) ? Object.keys(value).length : 0;
+    return count ? `${count} 项覆盖` : "使用默认策略";
+  }
+  if (value === undefined || value === null || value === "") return "未设置";
+  if (definition.type === "boolean") return value === true ? "已开启" : "未开启";
+  if (definition.enum?.includes(value)) {
+    const index = definition.enum.indexOf(value);
+    return definition.enumTitles?.[index] || String(value);
+  }
+  return String(value);
 }
 
 async function saveActionPoliciesRequest(c) {
@@ -242,6 +291,7 @@ function servePreviewImage(c) {
 function renderWidget(c, ctx) {
   const theme = c.req.query("hana-theme") || "inherit";
   const initialPolicies = getActionPolicies();
+  const initialConfiguration = getConfigurationSnapshot();
   const initialPoliciesJson = JSON.stringify(initialPolicies).replace(/</g, "\\u003c").replace(/>/g, "\\u003e").replace(/&/g, "\\u0026");
   return `<!doctype html>
 <html lang="zh-CN">
@@ -255,10 +305,22 @@ function renderWidget(c, ctx) {
 <body data-hana-theme="${escapeAttr(theme)}">
   <main class="panel">
     <header class="hero">
-      <div class="badge">侧边栏 · 安全管理</div>
+      <div class="badge">安全控制台</div>
       <h1>桌面控制</h1>
-      <p>在这里管理动作确认级别。策略只影响确认频率，不会关闭真实输入总开关、目标身份校验或窗口守卫。</p>
+      <p>查看插件设置与动作确认策略。Widget 只读展示配置，保存动作策略时仍受系统安全边界约束。</p>
     </header>
+
+    <section class="card settings-card" id="settingsCard">
+      <div class="row between">
+        <div>
+          <div class="label">插件设置</div>
+          <div class="settings-headline">与设置页同步的当前值</div>
+        </div>
+        <button type="button" id="refreshConfigurationButton" class="small secondary">刷新</button>
+      </div>
+      <div class="settings-note">配置来源：manifest.json。密钥只显示是否已设置，Widget 不修改插件设置。</div>
+      <div id="configurationList" class="configuration-list">${renderConfigurationHtml(initialConfiguration)}</div>
+    </section>
 
     <section class="card policy-card" id="policyCard">
       <div class="row between">
@@ -268,7 +330,7 @@ function renderWidget(c, ctx) {
         </div>
         <button type="button" id="refreshPoliciesButton" class="small secondary">刷新</button>
       </div>
-      <div class="policy-notice" id="policyNotice">系统底线动作始终需要确认。关闭窗口、剪贴板输入和键盘回退允许修改，但修改为自动执行前会显示风险警告。</div>
+      <div class="policy-notice" id="policyNotice">系统底线动作始终需要确认。关闭窗口、键盘回退和剪贴板回退改为自动执行前会显示风险警告。</div>
       <div id="policyList" class="policy-list">${renderPolicyListHtml(initialPolicies)}</div>
       <div class="row between policy-footer">
         <span class="hint" id="policySaveHint">策略已加载。</span>
@@ -277,9 +339,9 @@ function renderWidget(c, ctx) {
     </section>
 
     <section class="card danger" id="safetyCard">
-      <div class="label">安全门</div>
-      <div class="value" id="safetyValue">真实输入已拦截</div>
-      <p id="safetyText">真实点击、鼠标移动、键盘输入仍需 dryRun=false、配置授权和确认短语。</p>
+      <div class="label">真实输入状态</div>
+      <div class="value" id="safetyValue">${initialConfiguration.settings?.allowRealInput ? "真实输入已开启" : "真实输入已关闭"}</div>
+      <p id="safetyText">${escapeHtml(initialConfiguration.settings?.allowRealInput ? `权限模式：${initialConfiguration.settings.permissionMode}。真实动作仍受确认、签名和窗口守卫约束。` : "允许真实输入未开启，真实动作只返回 dry-run 计划。")}</p>
     </section>
 
     <section class="card composer">
@@ -312,18 +374,18 @@ function renderWidget(c, ctx) {
 
     <section class="grid summary-grid">
       <article class="card metric">
-        <div class="label">Action</div>
+        <div class="label">动作</div>
         <div class="value" id="actionValue">未解析</div>
-        <p id="actionText">等待 approvalBundle。</p>
+        <p id="actionText">等待审批包。</p>
       </article>
       <article class="card metric">
-        <div class="label">Risk</div>
-        <div class="value" id="riskValue">unknown</div>
-        <p id="riskText">风险等级来自 bundle。</p>
+        <div class="label">风险</div>
+        <div class="value" id="riskValue">未知</div>
+        <p id="riskText">风险等级来自审批包。</p>
       </article>
       <article class="card metric">
-        <div class="label">Status</div>
-        <div class="value" id="statusValue">preview-only</div>
+        <div class="label">状态</div>
+        <div class="value" id="statusValue">仅预览</div>
         <p id="statusText">真实执行保持关闭。</p>
       </article>
     </section>
@@ -377,7 +439,7 @@ function renderWidget(c, ctx) {
     <section class="card overlay-card">
       <div class="row between">
         <div>
-          <div class="label">光标预览层</div>
+          <div class="label">光标预览</div>
           <p id="overlayMeta">等待 cursorOverlay。</p>
         </div>
         <button type="button" id="replayOverlayButton" class="small secondary">重放</button>
@@ -390,21 +452,21 @@ function renderWidget(c, ctx) {
             <path d="M6 3l18 14-8 1.5 4.5 8-3.5 2-4.5-8-5 5z" fill="currentColor"/>
           </svg>
         </div>
-        <div id="overlayLabel" class="overlay-label">No cursor overlay</div>
+        <div id="overlayLabel" class="overlay-label">暂无光标预览</div>
       </div>
     </section>
 
     <section class="grid detail-grid">
       <article class="card">
-        <div class="label">Target</div>
+        <div class="label">目标</div>
         <dl id="targetList" class="kv"></dl>
       </article>
       <article class="card">
-        <div class="label">Preview Requests</div>
+        <div class="label">预览请求</div>
         <div id="previewRequests" class="stack empty">暂无</div>
       </article>
       <article class="card">
-        <div class="label">Verification</div>
+        <div class="label">校验</div>
         <div id="verificationBox" class="stack empty">暂无</div>
       </article>
     </section>
@@ -418,9 +480,15 @@ function renderWidget(c, ctx) {
     </section>
   </main>
   <script>window.__DESKTOP_ORCHESTRATOR_POLICIES__ = ${initialPoliciesJson};</script>
+  <script>window.__DESKTOP_ORCHESTRATOR_CONFIGURATION__ = ${JSON.stringify(initialConfiguration).replace(/</g, "\\u003c").replace(/>/g, "\\u003e").replace(/&/g, "\\u0026")};</script>
   <script>${renderClientScript()}</script>
 </body>
 </html>`;
+}
+
+function renderConfigurationHtml(payload) {
+  if (!payload?.ok) return '<div class="empty">配置读取失败。</div>';
+  return (payload.configuration || []).map((item) => `<article class="configuration-row"><div class="configuration-copy"><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.description)}</small><code>${escapeHtml(item.key)}</code></div><div class="configuration-value"><span>${escapeHtml(item.currentValue)}</span><small>默认：${escapeHtml(item.defaultValue)}</small></div></article>`).join("");
 }
 
 function renderPolicyListHtml(payload) {
@@ -450,6 +518,7 @@ function renderClientScript() {
     parseHint: document.getElementById('parseHint'),
     safetyValue: document.getElementById('safetyValue'),
     safetyText: document.getElementById('safetyText'),
+    safetyCard: document.getElementById('safetyCard'),
     cockpitSummaryCard: document.getElementById('cockpitSummaryCard'),
     refreshCockpitSummaryButton: document.getElementById('refreshCockpitSummaryButton'),
     cockpitHeadline: document.getElementById('cockpitHeadline'),
@@ -492,6 +561,8 @@ function renderClientScript() {
     normalizedOutput: document.getElementById('normalizedOutput'),
     policyHeadline: document.getElementById('policyHeadline'),
     policyNotice: document.getElementById('policyNotice'),
+    configurationList: document.getElementById('configurationList'),
+    refreshConfigurationButton: document.getElementById('refreshConfigurationButton'),
     policyList: document.getElementById('policyList'),
     refreshPoliciesButton: document.getElementById('refreshPoliciesButton'),
     savePoliciesButton: document.getElementById('savePoliciesButton'),
@@ -503,6 +574,7 @@ function renderClientScript() {
     dirty: false,
   };
   const initialPolicies = window.__DESKTOP_ORCHESTRATOR_POLICIES__ || null;
+  const initialConfiguration = window.__DESKTOP_ORCHESTRATOR_CONFIGURATION__ || null;
 
   const approvalState = {
     bundle: false,
@@ -532,6 +604,32 @@ function renderClientScript() {
   }
 
   const levelLabels = { auto: '自动执行', confirm: '每次确认' };
+
+  function renderConfiguration(payload) {
+    if (!payload?.ok) {
+      els.configurationList.innerHTML = '<div class="empty">配置读取失败。</div>';
+      return;
+    }
+    els.configurationList.innerHTML = (payload.configuration || []).map((item) => '<article class="configuration-row"><div class="configuration-copy"><strong>' + escapeHtml(item.title) + '</strong><small>' + escapeHtml(item.description) + '</small><code>' + escapeHtml(item.key) + '</code></div><div class="configuration-value"><span>' + escapeHtml(item.currentValue) + '</span><small>默认：' + escapeHtml(item.defaultValue) + '</small></div></article>').join('');
+    const enabled = payload.settings?.allowRealInput === true;
+    els.safetyValue.textContent = enabled ? '真实输入已开启' : '真实输入已关闭';
+    els.safetyText.textContent = enabled
+      ? '权限模式：' + (payload.settings.permissionMode || 'safe') + '。真实动作仍受确认、签名和窗口守卫约束。'
+      : '允许真实输入未开启，真实动作只返回 dry-run 计划。';
+    els.safetyCard?.classList.toggle('enabled', enabled);
+  }
+
+  async function refreshConfiguration() {
+    els.refreshConfigurationButton.disabled = true;
+    try {
+      const response = await pluginFetch('./api/configuration');
+      renderConfiguration(await response.json());
+    } catch (error) {
+      els.configurationList.innerHTML = '<div class="empty">配置读取失败：' + escapeHtml(error.message || String(error)) + '</div>';
+    } finally {
+      els.refreshConfigurationButton.disabled = false;
+    }
+  }
 
   function renderPolicies(payload) {
     policyState.policies = Array.isArray(payload?.policies) ? payload.policies : [];
@@ -605,7 +703,7 @@ function renderClientScript() {
 
   async function exportAuditEvidenceFromWidget() {
     els.exportEvidenceButton.disabled = true;
-    els.auditExportOutput.textContent = 'exporting audit evidence...';
+    els.auditExportOutput.textContent = '正在导出审计证据...';
     try {
       const response = await pluginFetch('./api/audit-evidence-export', { method: 'POST' });
       const result = await response.json();
@@ -636,7 +734,7 @@ function renderClientScript() {
       els.auditTimeline.innerHTML = events.map((event) => '<article class="timeline-event"><strong>' + escapeHtml(event.type) + '</strong><span>' + escapeHtml(event.at || '') + '</span><pre>' + escapeHtml(JSON.stringify(event.details || {}, null, 2)) + '</pre></article>').join('');
     } catch (error) {
       els.auditTimeline.classList.add('empty');
-      els.auditTimeline.textContent = 'timeline load failed: ' + (error.message || String(error));
+      els.auditTimeline.textContent = '审计时间线加载失败：' + (error.message || String(error));
     }
   }
 
@@ -737,7 +835,7 @@ function renderClientScript() {
     els.previewRequests.className = 'stack';
     els.previewRequests.innerHTML = Object.entries(requests).filter(([, req]) => req).map(([key, req]) => {
       const endpoint = key === 'visualVerify' ? './api/preview/visual-verify' : './api/preview/region-preview';
-      return '<div class="request" data-preview-key="' + escapeHtml(key) + '"><div class="row between"><strong>' + escapeHtml(key) + '</strong><button type="button" class="small" data-preview-endpoint="' + escapeHtml(endpoint) + '">Run preview</button></div><code>' + escapeHtml(req.tool || '') + '</code><pre>' + escapeHtml(JSON.stringify(req.input || {}, null, 2)) + '</pre><div class="preview-result empty">未运行</div><textarea class="preview-input" hidden readonly>' + escapeHtml(JSON.stringify(req.input || {})) + '</textarea></div>';
+      return '<div class="request" data-preview-key="' + escapeHtml(key) + '"><div class="row between"><strong>' + escapeHtml(key === 'visualVerify' ? '视觉校验' : '区域预览') + '</strong><button type="button" class="small" data-preview-endpoint="' + escapeHtml(endpoint) + '">运行预览</button></div><code>' + escapeHtml(req.tool || '') + '</code><pre>' + escapeHtml(JSON.stringify(req.input || {}, null, 2)) + '</pre><div class="preview-result empty">未运行</div><textarea class="preview-input" hidden readonly>' + escapeHtml(JSON.stringify(req.input || {})) + '</textarea></div>';
     }).join('');
   }
 
@@ -772,7 +870,7 @@ function renderClientScript() {
       els.overlayViewport.className = 'overlay-viewport empty';
       els.overlayCursor.style.display = 'none';
       els.overlayTarget.style.display = 'none';
-      els.overlayLabel.textContent = 'No cursor overlay';
+      els.overlayLabel.textContent = '暂无光标预览';
       els.overlayMeta.textContent = '当前 bundle 没有 cursorOverlay。';
       return;
     }
@@ -795,7 +893,7 @@ function renderClientScript() {
     els.overlayTarget.style.top = mappedTarget.y + '%';
     els.overlayCursor.style.display = 'block';
     els.overlayLabel.textContent = (overlay.target?.label || 'target') + ' · screen (' + Math.round(targetPoint.x) + ', ' + Math.round(targetPoint.y) + ')';
-    els.overlayMeta.textContent = '模拟光标预览，不移动真实鼠标 · duration ' + (overlay.motion?.durationMs || 520) + 'ms';
+    els.overlayMeta.textContent = '模拟光标，不移动真实鼠标 · 时长 ' + (overlay.motion?.durationMs || 520) + 'ms';
 
     const frames = (overlay.motion?.keyframes?.length ? overlay.motion.keyframes : [{ t: 0, ...targetPoint }, { t: 1, ...targetPoint }]).map((frame) => {
       const mapped = mapOverlayPoint(frame, bounds);
@@ -823,11 +921,11 @@ function renderClientScript() {
 
   function renderBundle(bundle) {
     els.actionValue.textContent = bundle.actionType || 'unknown';
-    els.actionText.textContent = bundle.plan?.action?.type ? 'planned: ' + bundle.plan.action.type : '计划已加载。';
-    els.riskValue.textContent = bundle.risk || 'unknown';
-    els.riskText.textContent = bundle.capability ? 'capability 已加载。' : 'capability 未提供。';
-    els.statusValue.textContent = bundle.status || 'preview-only';
-    els.statusText.textContent = bundle.approval?.reason ? 'reason: ' + bundle.approval.reason : '等待审批。';
+    els.actionText.textContent = bundle.plan?.action?.type ? '计划动作：' + bundle.plan.action.type : '计划已加载。';
+    els.riskValue.textContent = bundle.risk || '未知';
+    els.riskText.textContent = bundle.capability ? '能力信息已加载。' : '未提供能力信息。';
+    els.statusValue.textContent = bundle.status || '仅预览';
+    els.statusText.textContent = bundle.approval?.reason ? '原因：' + bundle.approval.reason : '等待审批。';
     const blocked = bundle.safety?.realActionBlocked !== false;
     els.safetyValue.textContent = blocked ? '真实输入已拦截' : '真实输入门已打开';
     els.safetyText.textContent = blocked ? '当前 bundle 仍处于预览模式。确认按钮保持禁用。' : 'bundle 显示真实动作门已开，但此界面仍不会执行动作。';
@@ -876,8 +974,8 @@ function renderClientScript() {
     els.input.value = '';
     setHint('waiting', 'idle');
     els.actionValue.textContent = '未解析';
-    els.riskValue.textContent = 'unknown';
-    els.statusValue.textContent = 'preview-only';
+    els.riskValue.textContent = '未知';
+    els.statusValue.textContent = '仅预览';
     els.targetList.innerHTML = '';
     els.previewRequests.className = 'stack empty';
     els.previewRequests.textContent = '暂无';
@@ -900,7 +998,7 @@ function renderClientScript() {
     const url = './api/preview-image?path=' + encodeURIComponent(filePath);
     els.overlayViewport.style.setProperty('--preview-image-url', 'url("' + url.replace(/"/g, '%22') + '")');
     els.overlayViewport.classList.add('has-preview-image');
-    els.overlayMeta.textContent = '真实裁剪图已加载为背景 · 光标仍是 DOM 模拟，不移动系统鼠标';
+    els.overlayMeta.textContent = '裁剪图已加载 · 光标为页面模拟，不移动系统鼠标';
     approvalState.region = true;
     updateChecklist();
     try {
@@ -992,7 +1090,7 @@ function renderClientScript() {
     els.cockpitStatusPill.classList.remove('healthy', 'warning', 'failed', 'unknown');
     els.cockpitStatusPill.classList.add(status);
     els.cockpitStatusPill.textContent = summary?.statusLabel || status;
-    els.cockpitHeadline.textContent = summary?.headline || 'Cockpit summary unavailable.';
+    els.cockpitHeadline.textContent = summary?.headline || '驾驶舱摘要暂不可用。';
     els.cockpitStatusItems.textContent = Array.isArray(summary?.items)
       ? summary.items.map((item) => item.name + ': ' + item.status + ' (' + item.passed + '/' + item.total + ')').join(' · ')
       : '无检查结果。';
@@ -1001,7 +1099,7 @@ function renderClientScript() {
 
   async function refreshCockpitSummary() {
     els.refreshCockpitSummaryButton.disabled = true;
-    els.cockpitSummaryOutput.textContent = 'refreshing cockpit summary...';
+    els.cockpitSummaryOutput.textContent = '正在刷新驾驶舱摘要...';
     try {
       const response = await pluginFetch('./api/cockpit-summary', { method: 'POST' });
       const result = await response.json();
@@ -1139,6 +1237,7 @@ function renderClientScript() {
   els.exportEvidenceButton.addEventListener('click', exportAuditEvidenceFromWidget);
   els.refreshTimelineButton.addEventListener('click', refreshAuditTimeline);
   els.refreshPoliciesButton.addEventListener('click', refreshPolicies);
+  els.refreshConfigurationButton.addEventListener('click', refreshConfiguration);
   els.savePoliciesButton.addEventListener('click', savePolicies);
   els.replayOverlayButton.addEventListener('click', () => {
     try {
@@ -1152,6 +1251,7 @@ function renderClientScript() {
   });
   els.input.addEventListener('input', () => setHint(els.input.value.trim() ? 'ready' : 'waiting', 'idle'));
   if (initialPolicies?.ok) renderPolicies(initialPolicies);
+  if (initialConfiguration?.ok) renderConfiguration(initialConfiguration);
   loadRecent();
   refreshCockpitSummary();
   refreshAuditTimeline();
@@ -1164,45 +1264,58 @@ function renderCss() {
   return `
 :root {
   color-scheme: light dark;
-  --panel: var(--hana-surface-panel, rgba(255,255,255,.84));
-  --text: var(--hana-text-primary, #111827);
-  --muted: var(--hana-text-secondary, #667085);
-  --border: var(--hana-border-subtle, rgba(15,23,42,.12));
-  --accent: #7c8cff;
-  --danger: #ef4444;
-  --ok: #22c55e;
-  --warn: #f59e0b;
-  --code: rgba(124,140,255,.12);
+  --panel: var(--hana-surface-panel, #f8fbfa);
+  --text: var(--hana-text-primary, #17211f);
+  --muted: var(--hana-text-secondary, #61716d);
+  --border: var(--hana-border-subtle, rgba(23,61,55,.16));
+  --accent: #0f766e;
+  --accent-strong: #0b5f59;
+  --danger: #c2413d;
+  --ok: #15803d;
+  --warn: #b45309;
+  --code: rgba(15,118,110,.10);
 }
 * { box-sizing: border-box; }
 body { margin: 0; min-height: 100vh; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--text); background: transparent; container-type: inline-size; container-name: hfwidget; }
-.panel { min-height: 100vh; padding: 14px; display: grid; gap: 12px; align-content: start; background: radial-gradient(circle at 20% 0%, rgba(124,140,255,.18), transparent 34%), radial-gradient(circle at 92% 18%, rgba(34,197,94,.12), transparent 28%); }
-.hero, .card { border: 1px solid var(--border); border-radius: 22px; background: linear-gradient(145deg, var(--panel), rgba(255,255,255,.48)); box-shadow: 0 18px 48px rgba(15,23,42,.10); }
+.panel { min-height: 100vh; padding: 12px; display: grid; gap: 10px; align-content: start; background: var(--hana-surface, #eef4f2); }
+.hero, .card { border: 1px solid var(--border); border-radius: 10px; background: var(--panel); box-shadow: 0 5px 18px rgba(23,61,55,.07); }
 .hero { padding: 18px; }
-.badge { display: inline-flex; align-items: center; padding: 5px 9px; border-radius: 999px; color: #3645d9; background: rgba(124,140,255,.16); font-size: 12px; font-weight: 750; letter-spacing: .04em; text-transform: uppercase; }
+.badge { display: inline-flex; align-items: center; padding: 4px 8px; border-radius: 6px; color: var(--accent-strong); background: rgba(15,118,110,.11); font-size: 11px; font-weight: 800; letter-spacing: .03em; }
 h1 { margin: 10px 0 6px; font-size: 24px; line-height: 1.15; }
 p { margin: 6px 0 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
 .grid { display: grid; gap: 10px; }
 .summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .detail-grid { grid-template-columns: 1fr 1.15fr 1fr; }
 .card { padding: 14px; }
-.card.danger { border-color: rgba(239,68,68,.24); background: linear-gradient(145deg, rgba(255,255,255,.88), rgba(239,68,68,.08)); }
+.card.danger { border-color: rgba(194,65,61,.30); background: rgba(194,65,61,.06); }
 .checklist-card { display: grid; gap: 10px; }
-.policy-card { display: grid; gap: 11px; border-color: rgba(124,140,255,.28); }
+.settings-card, .policy-card { display: grid; gap: 10px; }
+.settings-card { border-color: rgba(15,118,110,.28); }
+.policy-card { border-color: rgba(15,118,110,.20); }
+.settings-headline { margin-top: 4px; font-size: 15px; font-weight: 800; }
+.settings-note { padding: 9px 10px; border-left: 3px solid var(--accent); color: var(--muted); background: rgba(15,118,110,.07); font-size: 12px; line-height: 1.45; }
+.configuration-list { display: grid; gap: 6px; }
+.configuration-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 9px 10px; border: 1px solid var(--border); border-radius: 8px; background: rgba(255,255,255,.34); }
+.configuration-copy { min-width: 0; display: grid; gap: 3px; }
+.configuration-copy strong { font-size: 13px; }
+.configuration-copy small, .configuration-value small { color: var(--muted); font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; }
+.configuration-copy code { width: fit-content; color: var(--accent-strong); }
+.configuration-value { min-width: 92px; display: grid; gap: 3px; justify-items: end; text-align: right; }
+.configuration-value span { color: var(--accent-strong); font-size: 12px; font-weight: 800; }
 .policy-headline { margin-top: 4px; font-size: 16px; font-weight: 800; }
-.policy-notice { padding: 10px 11px; border: 1px solid rgba(245,158,11,.30); border-radius: 12px; color: var(--text); background: rgba(245,158,11,.10); font-size: 12px; line-height: 1.5; }
+.policy-notice { padding: 9px 10px; border-left: 3px solid var(--warn); color: var(--text); background: rgba(180,83,9,.08); font-size: 12px; line-height: 1.45; }
 .policy-list { display: grid; gap: 12px; }
 .policy-group { display: grid; gap: 7px; }
 .policy-group-title { color: var(--muted); font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
-.policy-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 10px; border: 1px solid var(--border); border-radius: 12px; background: rgba(148,163,184,.08); }
-.policy-row.warning-row { border-color: rgba(245,158,11,.34); background: rgba(245,158,11,.07); }
+.policy-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 9px 10px; border: 1px solid var(--border); border-radius: 8px; background: rgba(23,61,55,.035); }
+.policy-row.warning-row { border-color: rgba(180,83,9,.34); background: rgba(180,83,9,.06); }
 .policy-copy { min-width: 0; display: grid; gap: 3px; }
 .policy-copy strong { font-size: 13px; }
 .policy-copy span, .policy-copy small { color: var(--muted); font-size: 11px; line-height: 1.45; overflow-wrap: anywhere; }
 .policy-copy small { display: block; }
 .policy-warning, .policy-locked { width: fit-content; color: var(--warn) !important; font-weight: 800; }
 .policy-locked { color: var(--danger) !important; }
-.policy-row select { flex: 0 0 108px; min-width: 0; border: 1px solid var(--border); border-radius: 9px; padding: 7px 6px; color: var(--text); background: var(--panel); font-size: 11px; }
+.policy-row select { flex: 0 0 108px; min-width: 0; border: 1px solid var(--border); border-radius: 6px; padding: 7px 6px; color: var(--text); background: var(--panel); font-size: 11px; }
 .policy-row select:disabled { cursor: not-allowed; opacity: .62; }
 .policy-footer { align-items: center; }
 .checklist { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
@@ -1227,13 +1340,13 @@ p { margin: 6px 0 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
 .preflight-output.waiting { border-color: rgba(245,158,11,.38); background: rgba(245,158,11,.10); }
 .preflight-output.failed, .final-envelope-output.blocked, .self-check-output.failed, .protocol-matrix-output.failed, .fixture-sandbox-output.failed, .audit-export-output.failed { border-color: rgba(239,68,68,.34); background: rgba(239,68,68,.10); }
 .overlay-card { overflow: hidden; }
-.overlay-viewport { position: relative; height: 210px; margin-top: 12px; border: 1px solid var(--border); border-radius: 18px; overflow: hidden; background: radial-gradient(circle at 50% 50%, rgba(124,140,255,.18), transparent 34%), linear-gradient(135deg, rgba(15,23,42,.06), rgba(124,140,255,.08)); }
+.overlay-viewport { position: relative; height: 210px; margin-top: 12px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: rgba(15,118,110,.06); }
 .overlay-viewport::before { content: ''; position: absolute; inset: 0; background-image: var(--preview-image-url, none); background-size: contain; background-repeat: no-repeat; background-position: center; opacity: 0; transform: scale(1.02); transition: opacity .22s ease, transform .22s ease; z-index: 0; }
 .overlay-viewport.has-preview-image::before { opacity: .92; transform: scale(1); }
-.overlay-grid { position: absolute; inset: 0; background-image: linear-gradient(rgba(148,163,184,.18) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,.18) 1px, transparent 1px); background-size: 28px 28px; mask-image: radial-gradient(circle at center, black, transparent 82%); z-index: 1; }
-.overlay-cursor { position: absolute; left: 50%; top: 50%; width: 32px; height: 32px; color: #f8fafc; filter: drop-shadow(0 10px 22px rgba(88,102,242,.55)) drop-shadow(0 0 12px rgba(124,140,255,.85)); transform: translate(-4px, -4px); z-index: 3; }
-.overlay-target { position: absolute; left: 50%; top: 50%; width: 42px; height: 42px; border: 2px solid rgba(124,140,255,.95); border-radius: 999px; box-shadow: 0 0 0 8px rgba(124,140,255,.18), 0 0 32px rgba(124,140,255,.55); transform: translate(-50%, -50%); z-index: 2; }
-.overlay-target::after { content: ''; position: absolute; inset: 13px; border-radius: inherit; background: rgba(124,140,255,.95); }
+.overlay-grid { position: absolute; inset: 0; background-image: linear-gradient(rgba(23,61,55,.12) 1px, transparent 1px), linear-gradient(90deg, rgba(23,61,55,.12) 1px, transparent 1px); background-size: 28px 28px; mask-image: radial-gradient(circle at center, black, transparent 82%); z-index: 1; }
+.overlay-cursor { position: absolute; left: 50%; top: 50%; width: 32px; height: 32px; color: #f8fffd; filter: drop-shadow(0 8px 16px rgba(15,118,110,.40)) drop-shadow(0 0 10px rgba(15,118,110,.55)); transform: translate(-4px, -4px); z-index: 3; }
+.overlay-target { position: absolute; left: 50%; top: 50%; width: 42px; height: 42px; border: 2px solid rgba(15,118,110,.92); border-radius: 999px; box-shadow: 0 0 0 8px rgba(15,118,110,.12), 0 0 24px rgba(15,118,110,.34); transform: translate(-50%, -50%); z-index: 2; }
+.overlay-target::after { content: ''; position: absolute; inset: 13px; border-radius: inherit; background: rgba(15,118,110,.92); }
 .overlay-label { position: absolute; left: 12px; bottom: 10px; right: 12px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 12px; color: var(--text); background: rgba(255,255,255,.62); backdrop-filter: blur(10px); font-size: 12px; z-index: 4; }
 .overlay-viewport.empty .overlay-cursor, .overlay-viewport.empty .overlay-target { display: none; }
 .label { color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
@@ -1249,16 +1362,17 @@ code { display: inline-block; max-width: 100%; padding: 1px 5px; border-radius: 
 label { font-size: 13px; font-weight: 800; }
 textarea { min-height: 128px; resize: vertical; width: 100%; border: 1px solid var(--border); border-radius: 16px; padding: 11px; color: var(--text); background: rgba(255,255,255,.58); font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; outline: none; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; }
-button { border: 0; border-radius: 14px; padding: 10px 13px; color: white; background: linear-gradient(135deg, #7c8cff, #5866f2); font-weight: 800; cursor: pointer; }
-button.small { padding: 7px 10px; border-radius: 11px; font-size: 12px; }
-button.secondary { color: var(--text); background: rgba(148,163,184,.18); }
-button.disabled, button:disabled { cursor: not-allowed; background: linear-gradient(135deg, #94a3b8, #64748b); opacity: .62; }
+button { border: 0; border-radius: 6px; padding: 9px 12px; color: #fff; background: var(--accent); font-weight: 800; cursor: pointer; }
+button:hover:not(:disabled) { background: var(--accent-strong); }
+button.small { padding: 6px 9px; border-radius: 5px; font-size: 12px; }
+button.secondary { color: var(--text); background: rgba(23,61,55,.09); }
+button.disabled, button:disabled { cursor: not-allowed; background: #8c9d99; opacity: .62; }
 .kv { display: grid; grid-template-columns: 82px minmax(0, 1fr); gap: 7px 8px; margin: 10px 0 0; font-size: 12px; }
 dt { color: var(--muted); }
 dd { margin: 0; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .stack { display: grid; gap: 8px; margin-top: 10px; }
 .empty { color: var(--muted); font-size: 13px; }
-.request { padding: 10px; border: 1px solid var(--border); border-radius: 14px; background: rgba(124,140,255,.08); }
+.request { padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: rgba(15,118,110,.06); }
 .request strong { display: block; margin-bottom: 6px; }
 .request pre, .raw-card pre { margin: 8px 0 0; max-height: 220px; overflow: auto; white-space: pre-wrap; color: var(--text); font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .preview-result { margin-top: 8px; padding: 9px; border: 1px solid var(--border); border-radius: 12px; background: rgba(34,197,94,.08); font-size: 12px; }
@@ -1290,7 +1404,9 @@ button { white-space: normal; overflow-wrap: anywhere; }
    the reported viewport width did not match the narrow rendered column. */
 @container hfwidget (max-width: 900px) { .summary-grid, .detail-grid, .checklist { grid-template-columns: 1fr; } }
 @container hfwidget (max-width: 520px) {
-  .panel { padding: 10px; gap: 10px; }
+  .panel { padding: 9px; gap: 9px; }
+  .configuration-row { grid-template-columns: 1fr; }
+  .configuration-value { justify-items: start; text-align: left; }
   .hero, .card { border-radius: 18px; }
   .hero { padding: 14px; }
   .card { padding: 12px; }
@@ -1318,9 +1434,19 @@ button { white-space: normal; overflow-wrap: anywhere; }
   .hero, .card { border-radius: 18px; }
   h1 { font-size: 21px; overflow-wrap: anywhere; }
 }
+[data-hana-theme="dark"] {
+  color-scheme: dark;
+  --panel: #182522;
+  --text: #e8f1ee;
+  --muted: #a8bab5;
+  --border: rgba(167,205,195,.18);
+  --code: rgba(84,190,174,.16);
+}
 @media (prefers-color-scheme: dark) {
-  :root { --panel: rgba(17,24,39,.78); --text: #f8fafc; --muted: #a8b3c7; --border: rgba(148,163,184,.18); --code: rgba(124,140,255,.18); }
-  .card.danger { background: linear-gradient(145deg, rgba(17,24,39,.86), rgba(239,68,68,.10)); }
+  :root { --panel: #182522; --text: #e8f1ee; --muted: #a8bab5; --border: rgba(167,205,195,.18); --code: rgba(84,190,174,.16); }
+  .panel { background: #101917; }
+  .card.danger { background: rgba(194,65,61,.13); }
+  .configuration-row { background: rgba(255,255,255,.025); }
   textarea { background: rgba(15,23,42,.68); }
   button.secondary { background: rgba(148,163,184,.16); }
   .overlay-label { background: rgba(15,23,42,.68); }
