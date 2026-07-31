@@ -1,213 +1,393 @@
 # Desktop Orchestrator
 
-Desktop Orchestrator is a guarded Windows desktop control platform for HanaAgent.
+Desktop Orchestrator 是 HanaAgent 的 Windows 桌面控制插件。
 
-It is designed as a stronger alternative to simple mouse/keyboard plugins: it separates observation, targeting, planning, approval, execution preflight, and verification so desktop control can become powerful without becoming reckless.
+它可以先观察桌面、识别目标窗口和控件，再生成操作计划；只有安全检查、权限和确认条件全部满足时，才允许执行真实输入。默认情况下，真实点击、键盘输入和剪贴板回退都是关闭的。
 
-## Requirements
+适合以下场景：
 
-- Windows 10 / 11 (PowerShell 5.1 built-in; PowerShell 7 recommended for non-ASCII paths)
-- Node.js 18+
-- HanaAgent with full-access enabled (the plugin needs it for UIA APIs, Win32 interop, native helper processes, and widget surfaces)
-- For `vision-query` / `vision-click`: a vision-capable LLM API (Anthropic-format or OpenAI-format). Defaults to MiniMax Anthropic. See configuration below.
+- 读取当前桌面和窗口状态
+- 查找按钮、输入框、列表项等 UI Automation 控件
+- 操作 Win32、WinUI、WinForms、WPF 和 Chromium/Edge 窗口
+- 处理网页 Canvas、自绘界面和普通原生 Direct2D 窗口
+- 在 UIA 不可用时使用受保护的视觉定位
+- 对操作做 dry-run 预览、审批、审计和结果验证
 
-## Install
+当前版本：**0.3.0-alpha.8**
 
-1. Drop the `desktop-orchestrator` folder into your HanaAgent plugins directory (default `~/.hanako/plugins/`).
-2. Restart HanaAgent so the plugin loader scans and registers the tool list.
-3. Open the plugin settings page and fill in the vision API fields if you want vision tools.
+---
 
-The plugin directory must contain `manifest.json`, `index.js`, and the `tools/`, `lib/`, `routes/`, `helper/` folders. Source `desktop-orchestrator-v0.2.1-完整版.zip` is a redistributable bundle; the development repo is this folder.
+## 一、安装
 
-## Configuration
+### 从 ZIP 安装
 
-Plugin config (stored in `%APPDATA%/hana-desktop-orchestrator/config.json` or the plugin-data folder):
+1. 下载 `desktop-orchestrator-0.3.0-alpha.8.zip`。
+2. 在 HanaAgent 的插件安装入口导入这个 ZIP。
+3. 重载或重启 HanaAgent。
+4. 在插件设置中按需配置视觉模型和真实输入权限。
 
-| Key | Description | Default |
-| --- | --- | --- |
-| `allowRealInput` | Master switch for real mouse/keyboard actions. It must be explicitly enabled before any mode can execute desktop input. | `false` |
-| `allowRealMouseMove` | Allows raw coordinate click, drag, and wheel actions to execute real input; when disabled they remain dry-run only. | `false` |
-| `permissionMode` | Overall permission boundary: `safe`, `auto-review`, or `full-access`. It cannot enable real input by itself. | `safe` |
-| `confirmationPolicy` | Legacy global confirmation preset. New action-level overrides from the sidebar take precedence for registered actions. | empty |
-| `actionConfirmation` | Object containing explicit per-action overrides such as `window.close`, `input.keyboard-fallback`, and `input.clipboard-fallback`, with values `auto` or `confirm`. | `{}` |
-| `defaultSnapshotFormat` | Screenshot encoding. | `png` |
-| `allowKeyboardInput` | Enables the keyboard fallback only after UIA focus succeeds and the target window remains foreground. | `false` |
-| `allowClipboardInput` | Enables the clipboard fallback for plain-text clipboard state only; rich or binary clipboard state is rejected. | `false` |
-| `maxWindowResults` | How many windows `list-windows` returns. | `40` |
-| `visionApiBase` | Vision API base URL (Anthropic-format like `https://api.minimaxi.com/anthropic` or OpenAI-format). | empty |
-| `visionApiKey` | Vision API key. | empty |
-| `visionModel` | Vision model id, e.g. `MiniMax-M3`, `claude-3-5-sonnet-20241022`, `gpt-4o`. | empty |
+安装包应包含以下核心内容：
 
-Without a vision config, `vision-query` and `vision-click` return a clear error explaining how to set it.
+```text
+manifest.json
+index.js
+lib/
+tools/
+routes/
+helper/
+scripts/
+docs/
+```
 
-### Permission modes (0.3.0-alpha.1)
+### 从源码开发
 
-The first permission-policy slice adds a shared decision kernel without changing the default safety boundary:
+```powershell
+cd C:\Users\Ganlin\Desktop\desktop-orchestrator-dev
+npm install
+npm run check
+npm run final-regression
+```
 
-- `safe`: read-only actions are allowed; real actions require the exact confirmation phrase.
-- `auto-review`: common actions may run after `allowRealInput` is enabled; sensitive and destructive actions require confirmation.
-- `full-access`: common and sensitive actions may run after `allowRealInput` is enabled; destructive actions still require confirmation.
+---
 
-All modes remain subject to the existing lease, element-signature, window-guard, approval-bundle, and post-action verification paths. `allowRealInput`, `allowKeyboardInput`, and `allowClipboardInput` remain `false` by default. This alpha also adds opt-in local control sessions with explicit scope, TTL, action limits, revocation, and hash integrity checks. Action batches and remote command envelopes remain follow-up work.
+## 二、它是怎样工作的
 
-## Safety
+一次安全的桌面操作通常经过下面几步：
 
-High-risk tools default to dry-run. Real input first requires:
+```text
+观察桌面
+  → 找到目标窗口
+  → 读取 UIA 或截图
+  → 创建短期目标身份
+  → 生成 dry-run 计划
+  → 检查权限和审批证据
+  → 执行操作
+  → 重新读取并验证结果
+```
 
-1. `dryRun: false` in the tool input.
-2. `allowRealInput: true` in the plugin config.
-3. The configured `permissionMode` decision.
-4. When `sessionId` is supplied, a valid control session whose scope matches the action and target.
+插件不会把坐标当作永久有效的目标。窗口变化、页面刷新、控件替换或截图过期后，目标可能失效，系统会拒绝继续操作。
 
-In `safe`, the exact confirmation phrase `I_UNDERSTAND_DESKTOP_INPUT` is required for every real action. In `auto-review` and `full-access`, the shared policy provides the default behavior, while explicit action-level settings can change the confirmation level for registered actions. `window.close`, `input.keyboard-fallback`, and `input.clipboard-fallback` are editable from the widget sidebar; changing any of them away from its default shows a risk warning before saving. External send/submit/publish, payment, and credential actions remain hard-confirmation actions and cannot be made silent. Any missing gate returns a dry-run envelope without touching the system. The plugin keeps an append-only local audit timeline at `%TEMP%/hana-desktop-orchestrator/audit-timeline.json`. Control sessions are stored separately at `%TEMP%/hana-desktop-orchestrator/control-session-store.json`; session creation and revocation require `I_UNDERSTAND_DESKTOP_INPUT` and never execute desktop input.
+---
 
-## Known Bugs and Limits
+## 三、最重要的安全规则
 
-These are real issues found during development and stress testing. PRs welcome.
+### 默认只观察，不执行真实输入
 
-- **MiniMax vision-query coordinate regression is unreliable.** Direct "give me the pixel coordinates of X" questions return coordinates with ~100px+ error even when the target is large and obvious. M3 is better than M2 at SoM-style multi-choice questions but still loses to a human pixel estimate.
-- **Hana framework caches the tool list at install time.** New `tools/*.js` files added after the first plugin load are NOT auto-registered; you must reinstall the plugin (drag the folder back into Hana's install surface) for new tools to appear.
-- **`focus-window` returns `ok: false` for some Electron/WebView2 windows** because UIPI prevents non-foreground thread input attach. `manage-window restore` with the `SW_RESTORE+Foreground` detail path is a more reliable fallback.
-- **PowerShell 5.1 multi-line here-string compilation sometimes fails** when inlined through JavaScript template literals that contain conditional heredoc headers. We removed all such patterns in this release; if you add new tools, prefer `HanaWin32.dll` for any new Win32 bindings.
-- **Some Electron apps (Tabbit, Chrome) hide page content behind GPU `Intermediate D3D Window`** so UIA only sees the browser chrome. Vision is the only path to interact with page internals.
+以下设置默认都是关闭的：
 
-## Design Position
+- `allowRealInput`
+- `allowRealMouseMove`
+- `allowKeyboardInput`
+- `allowClipboardInput`
 
-This project is not a clone of HanaAgent's experimental Computer Use and not a thin wrapper around raw mouse clicks.
+关闭这些设置时，高风险工具只返回 dry-run 计划，不会点击、输入、拖动、滚动或关闭窗口。
 
-It aims to provide:
+### 真实操作需要多重条件
 
-1. desktop state snapshots
-2. target-window oriented control
-3. UIA-first semantic actions
-4. lease-bound stale-target protection
-5. explicit dry-run planning before dangerous actions
-6. permission-mode and review-cockpit decisions before real-input execution
-7. post-action and visual verification hooks
-8. local audit evidence export
+真实输入通常同时需要：
 
-## Current Tool Set
+1. 工具参数中的 `dryRun: false`
+2. 开启 `allowRealInput`
+3. 对应的鼠标、键盘或剪贴板开关
+4. 当前权限模式允许
+5. 目标窗口仍然存在并且处于前台
+6. UIA 目标的 lease 和签名仍然有效
+7. 坐标操作通过命中窗口校验
+8. 需要确认时提供准确短语：
 
-| Tool | Purpose | Risk |
-| --- | --- | --- |
-| `desktop-orchestrator_snapshot` | Capture screen/window state and optionally a screenshot | Low |
-| `desktop-orchestrator_list-windows` | List visible top-level windows | Low |
-| `desktop-orchestrator_focus-window` | Bring a selected window to foreground | Medium |
-| `desktop-orchestrator_find-control` | Find matching UIA controls in a target window and return the best candidates | Low |
-| `desktop-orchestrator_inspect-window` | Summarize a target window into actionable controls, inputs, navigation, status text, and observation suggestions | Low |
-| `desktop-orchestrator_plan-action` | Convert intent into a guarded action plan | Low |
-| `desktop-orchestrator_protected-click` | Perform or dry-run a guarded click | High |
-| `desktop-orchestrator_ui-tree` | Read window-scoped UIA element summaries and create a short-lived lease | Low |
-| `desktop-orchestrator_click-element` | Dry-run or invoke a UIA element click after lease/signature verification | High |
-| `desktop-orchestrator_type-element` | Dry-run or set text through UIA ValuePattern; keyboard/clipboard fallback requires separate config gates, UIA focus, foreground verification, and optional session capability | High |
-| `desktop-orchestrator_verify-action` | Re-read a lease-bound UIA element and verify its signature | Low |
-| `desktop-orchestrator_visual-verify` | Capture an element region in memory and compare visual signatures | Low |
-| `desktop-orchestrator_region-preview` | Capture a lease-bound element crop as a PNG preview | Low |
-| `desktop-orchestrator_self-check` | Read local protocol stores and summarize safety gate health | Low |
-| `desktop-orchestrator_protocol-test-matrix` | Exercise non-destructive token rejection and dry-run gate cases | Low |
-| `desktop-orchestrator_fixture-sandbox` | Run pure in-memory protocol fixtures for pass/block scenarios | Low |
-| `desktop-orchestrator_cockpit-summary` | Aggregate self-check, protocol matrix, and fixture sandbox status | Low |
-| `desktop-orchestrator_manage-window` | Move / resize / minimize / maximize / restore / close a window. Uses `SW_RESTORE+Foreground` for reliable restore. | Medium |
-| `desktop-orchestrator_mouse-click-at` | Mode 2: real `SetCursorPos` + `mouse_event` with pre-injection guard (verifies target window at click point). | High |
-| `desktop-orchestrator_mouse-drag` | Real mouse drag from start to end coordinates with guard. | High |
-| `desktop-orchestrator_mouse-wheel` | Real mouse wheel at coordinates. | High |
-| `desktop-orchestrator_vision-query` | Send a screenshot to the configured vision API and return coordinates / text answer. | Low (read-only) |
-| `desktop-orchestrator_vision-click` | PrintWindow + visual analysis + return click plan with `coordinateContract`. | Medium |
-| `desktop-orchestrator_create-control-session` | Create a scoped, expiring local control session after explicit confirmation. | High |
-| `desktop-orchestrator_inspect-control-session` | Inspect a local control session without executing desktop input. | Low |
-| `desktop-orchestrator_revoke-control-session` | Revoke a local control session after explicit confirmation. | High |
+```text
+I_UNDERSTAND_DESKTOP_INPUT
+```
 
-`find-control` is the first higher-level read tool built on top of `ui-tree`: callers can ask for a button, input box, list item, AutomationId, class name, or supported pattern without manually scanning the full UIA tree.
+### 安全模式
 
-`inspect-window` adds a window-level read summary: it groups visible UIA elements into action controls, input controls, navigation candidates, and status/error text candidates, then suggests the next safe observation or dry-run planning step.
+| 模式 | 行为 |
+| --- | --- |
+| `safe` | 默认模式。观察和 dry-run 可以使用；真实动作需要确认。 |
+| `auto-review` | 普通动作可以按策略执行，敏感和破坏性动作仍需确认。 |
+| `full-access` | 放宽普通和部分敏感动作的默认确认，但破坏性动作仍保留确认边界。 |
 
-High-risk tools default to dry-run. Real input remains blocked unless the applicable gates pass: `dryRun: false`, plugin config `allowRealInput: true`, permission policy, and for session-bound actions a valid scoped session. `safe` actions still require the exact confirmation phrase `I_UNDERSTAND_DESKTOP_INPUT`; session creation and revocation always require it.
+权限模式本身不会自动打开真实输入。`allowRealInput` 仍然是总开关。
 
-## Sidebar Policy Management
+### 永远保留的底线
 
-The widget at `/api/plugins/desktop-orchestrator/widget` contains a policy management sidebar and the review cockpit. The policy section reads the action registry from `GET /api/action-policies` and saves only the `actionConfirmation` object through `POST /api/action-policies`; it cannot change `allowRealInput`, `permissionMode`, or the system hard-confirmation floor. On Hana hosts, reads and writes use the shared plugin configuration service so the Widget, settings page, and runtime permission checks remain synchronized; standalone or older hosts use the atomic config-file fallback.
+- 窗口关闭、外部发送、提交、发布、支付和凭据相关动作不能静默放行。
+- 审批 token 必须是非可执行 token。
+- 过期 token、篡改 token、旧版本 token 和签名不匹配都会被拒绝。
+- final execution envelope 只生成 dry-run 结果，不直接执行动作。
+- 所有重要事件都会写入本地审计时间线。
 
-Each registered action has a stable key, a default confirmation level, and a minimum safety rule. The sidebar groups actions by window, UIA, fallback input, mouse, and system-floor categories. The three editable high-risk actions display a warning badge and require an explicit warning acknowledgement before a save is accepted. Unknown actions fail closed and require confirmation.
+---
 
-## Review Cockpit
+## 四、功能总览
 
-The widget review section remains a dry-run evidence cockpit, not an execution panel.
+### 1. 桌面观察
 
-It supports:
+- 获取全屏或指定窗口状态
+- 获取窗口标题、进程、句柄、边界和前台状态
+- 读取窗口的 UIA 元素树
+- 查找按钮、输入框、列表项、AutomationId 和控件模式
+- 生成窗口级可操作控件摘要
 
-- recent approval bundle loading
-- cursor overlay simulation
-- guarded region-preview image proxy
-- approval checklist state machine
-- non-executable local approval tokens
-- execution preflight
+### 2. UIA 语义操作
+
+- 按 lease、元素签名和窗口身份点击控件
+- 使用 ValuePattern 给输入框赋值
+- 在 ValuePattern 不可用时，按安全条件选择键盘或剪贴板回退
+- 验证控件是否仍然是原来的目标
+- 对 WinUI 外层容器中的后代输入控件进行受证明的焦点校验
+
+### 3. 窗口操作
+
+- 聚焦窗口
+- 移动和调整窗口大小
+- 最小化、最大化、还原窗口
+- 关闭窗口
+
+窗口关闭属于破坏性动作，会经过单独的确认和窗口身份校验。
+
+### 4. 鼠标操作
+
+- 指定坐标点击
+- 拖动
+- 滚轮
+- 受保护的普通点击计划
+
+坐标点击前会检查目标点实际命中的窗口是否与预期窗口一致，防止窗口漂移或焦点变化导致误点。
+
+### 5. 视觉和自绘界面
+
+- 捕获窗口或屏幕截图
+- 将截图交给视觉模型定位目标
+- 返回坐标契约和点击计划
+- 对 Canvas、自绘控件和 GPU-like 界面执行受保护视觉点击
+- 点击后重新截图，比较状态变化
+
+已经验证的场景包括：
+
+- Chromium/Edge 网页输入控件
+- Chromium/Edge Canvas
+- 普通原生 Direct2D 窗口
+
+视觉路径只能证明像素位置，不能取代窗口命中校验、前台校验和点击后验证。
+
+### 6. 审查驾驶舱和审计
+
+Widget `/widget` 提供：
+
+- 最近审批 bundle 查看
+- 光标预演
+- 区域预览
+- 审批检查清单
+- dry-run 执行前检查
 - final dry-run envelope
 - self-check
-- protocol test matrix
+- 协议测试矩阵
 - fixture sandbox
-- cockpit summary dashboard
-- audit timeline display
-- audit evidence JSON export with hash-chain verification
+- cockpit summary
+- 审计时间线
+- 审计证据 JSON 导出
+- 动作级确认策略管理
 
-The widget uses \`full-access\` because the plugin operates at the same system-privilege level as Hana's native Computer Use. Full-access is required for:
-- UIA InvokePattern (click-element), ValuePattern.SetValue, and explicitly gated text fallbacks (type-element)
-- Keyboard fallback sends Unicode input only after UIA SetFocus and foreground checks; clipboard fallback uses stdin transport and refuses rich clipboard state
-- Real mouse click, drag, and wheel injection (mouse-click-at, mouse-drag, mouse-wheel)
-- Window focus, move, resize, minimize, maximize, and close (focus-window, manage-window)
-- Screen capture via PrintWindow / CopyFromScreen (snapshot, region-preview)
-- Native helper process execution (desktop-helper.exe, desktop-uia-helper.exe)
-- Widget review cockpit surface
+---
 
-All high-risk tools default to \`dryRun: true\` and require explicit confirmation plus signature verification before real execution. Text fallback input also requires the corresponding `allowKeyboardInput` or `allowClipboardInput` setting; these settings are independent of `allowRealInput`. Raw coordinate mouse tools additionally require `expectedWindow`, persist approval evidence before input, reject failed cursor previews, and re-check the hit window immediately before injection. See [\`docs/SAFETY.md\`](docs/SAFETY.md) for the full guard chain.
+## 五、全部工具
 
-## Audit Evidence
+### 观察和规划
 
-Audit events are stored in `%TEMP%/hana-desktop-orchestrator/audit-timeline.json`.
+| 工具 | 用途 |
+| --- | --- |
+| `desktop-orchestrator_snapshot` | 获取全屏或窗口状态，可选截图。 |
+| `desktop-orchestrator_list-windows` | 列出当前可见顶层窗口。 |
+| `desktop-orchestrator_ui-tree` | 读取窗口范围内的 UIA 元素，并生成短期 lease。 |
+| `desktop-orchestrator_find-control` | 按名称、AutomationId、角色、类名或模式查找控件。 |
+| `desktop-orchestrator_inspect-window` | 汇总窗口中的按钮、输入区、导航项和状态文本。 |
+| `desktop-orchestrator_plan-action` | 把自然语言操作意图转换为受保护的动作计划。 |
 
-New events include `previousHash` and `eventHash` so the local timeline can be verified as a hash chain. Older events without hashes are treated as legacy-compatible rather than corruption.
+### UIA 和文本输入
 
-Audit evidence export is available through the widget API:
+| 工具 | 用途 |
+| --- | --- |
+| `desktop-orchestrator_click-element` | 按 lease 和元素签名点击 UIA 控件。 |
+| `desktop-orchestrator_type-element` | 通过 ValuePattern 输入文字，必要时走键盘或剪贴板回退。 |
+| `desktop-orchestrator_verify-action` | 复查 lease 绑定的元素和签名。 |
+
+### 窗口和鼠标
+
+| 工具 | 用途 |
+| --- | --- |
+| `desktop-orchestrator_focus-window` | 聚焦指定窗口。 |
+| `desktop-orchestrator_manage-window` | 移动、缩放、最小化、最大化、还原或关闭窗口。 |
+| `desktop-orchestrator_protected-click` | 生成或执行受保护点击。 |
+| `desktop-orchestrator_mouse-click-at` | 在物理屏幕坐标执行带命中守卫的点击。 |
+| `desktop-orchestrator_mouse-drag` | 执行带窗口守卫的鼠标拖动。 |
+| `desktop-orchestrator_mouse-wheel` | 在指定位置执行带窗口守卫的滚轮操作。 |
+
+### 视觉和截图
+
+| 工具 | 用途 |
+| --- | --- |
+| `desktop-orchestrator_vision-click` | 截图并生成视觉点击定位结果，不直接点击。 |
+| `desktop-orchestrator_vision-query` | 把截图发送给视觉模型，询问坐标或画面信息。 |
+| `desktop-orchestrator_visual-verify` | 对 lease 绑定区域采样并比较视觉签名。 |
+| `desktop-orchestrator_region-preview` | 生成 lease 绑定区域的 PNG 预览。 |
+
+### 控制会话
+
+| 工具 | 用途 |
+| --- | --- |
+| `desktop-orchestrator_create-control-session` | 创建有 TTL、范围和动作额度的本地控制会话。 |
+| `desktop-orchestrator_inspect-control-session` | 查看控制会话状态和剩余额度。 |
+| `desktop-orchestrator_revoke-control-session` | 撤销控制会话。 |
+
+### 安全检查和审计
+
+| 工具 | 用途 |
+| --- | --- |
+| `desktop-orchestrator_self-check` | 读取本地协议存储并检查安全门状态。 |
+| `desktop-orchestrator_protocol-test-matrix` | 测试 token、审批 bundle、确认和 dry-run 拒绝路径。 |
+| `desktop-orchestrator_fixture-sandbox` | 用纯内存 fixture 测试允许和阻断场景。 |
+| `desktop-orchestrator_cockpit-summary` | 汇总三类安全检查并返回健康状态。 |
+
+---
+
+## 六、配置说明
+
+| 配置项 | 作用 | 默认值 |
+| --- | --- | --- |
+| `allowRealInput` | 真实输入总开关。关闭时只返回 dry-run。 | `false` |
+| `allowRealMouseMove` | 允许坐标点击、拖动和滚轮移动真实鼠标。 | `false` |
+| `allowKeyboardInput` | 允许 UIA 失败后的键盘回退。 | `false` |
+| `allowClipboardInput` | 允许纯文本剪贴板回退。 | `false` |
+| `permissionMode` | 权限模式：`safe`、`auto-review`、`full-access`。 | `safe` |
+| `confirmationPolicy` | 旧版全局确认策略，动作级策略优先。 | 空 |
+| `actionConfirmation` | 为具体动作设置 `auto` 或 `confirm`。 | `{}` |
+| `defaultSnapshotFormat` | 默认截图格式：`png` 或 `jpeg`。 | `png` |
+| `maxWindowResults` | 窗口列表返回数量上限。 | `40` |
+| `visionApiBase` | 视觉模型 API 地址。 | 空 |
+| `visionApiKey` | 视觉模型 API Key。 | 空 |
+| `visionModel` | 视觉模型名称。 | 空 |
+
+### 视觉模型配置
+
+使用 `vision-query` 或 `vision-click` 前，需要配置兼容的视觉模型 API：
+
+```text
+visionApiBase
+visionApiKey
+visionModel
+```
+
+没有配置时，视觉工具会返回配置提示，不会假装定位成功。
+
+---
+
+## 七、推荐使用方式
+
+### 只读观察
+
+适合先了解桌面状态：
+
+```text
+snapshot → list-windows → inspect-window
+```
+
+### 操作标准控件
+
+```text
+ui-tree → find-control → click-element/type-element → verify-action
+```
+
+### 操作自绘或 Canvas 界面
+
+```text
+snapshot/vision-click → 人工确认目标 → 窗口命中校验 → 点击 → 截图验证
+```
+
+### 开启真实输入前
+
+建议先保持所有真实输入开关关闭，观察 dry-run 计划；确认目标、窗口和动作都正确后，再按需要打开最小权限。
+
+---
+
+## 八、兼容性和已验证场景
+
+| 场景 | 结果 |
+| --- | --- |
+| WinUI / Notepad | UIA、ValuePattern、键盘回退、剪贴板回退已验证。 |
+| WinForms | UIA、后代焦点、键盘回退、剪贴板回退已验证。 |
+| WPF | UIA、后代焦点、键盘回退、剪贴板回退已验证。 |
+| Chromium / Edge 网页控件 | ValuePattern、键盘回退、剪贴板回退已验证。 |
+| Chromium / Edge Canvas | UIA 只能看到 Canvas surface，视觉点击链路已验证。 |
+| 原生 Direct2D 窗口 | `D2D1_RENDER_TARGET_TYPE_DEFAULT`、PrintWindow 和视觉点击已验证。 |
+
+---
+
+## 九、已知边界
+
+以下场景不应直接套用普通窗口或 Direct2D 的结论：
+
+- 独占全屏 DirectX 或 Vulkan
+- 硬件 overlay 表面
+- 受保护的视频表面
+- 带反作弊保护的游戏或应用
+- 需要登录、验证码或外部通信确认的界面
+- 视觉模型返回坐标不稳定的复杂画面
+
+视觉捕获可能受到 GPU 合成、窗口遮挡、DPI、窗口移动和黑屏的影响。遇到截图过期、窗口漂移、目标不确定或命中窗口不一致时，插件应 fail-closed。
+
+---
+
+## 十、审计和数据位置
+
+临时安全数据默认保存在：
+
+```text
+%TEMP%\hana-desktop-orchestrator\
+```
+
+主要文件包括：
+
+```text
+approval-token-store.json
+control-session-store.json
+audit-timeline.json
+```
+
+审计时间线包含事件哈希链。证据导出通过 Widget API 完成：
 
 ```text
 POST /api/audit-evidence-export
 ```
 
-The export writes a local JSON evidence package. It does not mutate approval state and does not execute desktop input.
+导出只生成本地 JSON 证据包，不执行桌面输入，也不会修改审批状态。
 
-## Known Dev-Tool Boundary
+---
 
-The audit export helper and widget API are stable, but standalone audit export tool wrappers were not registered by the current dev tool discovery path. Keeping export behind the widget API avoids destabilizing the registered tool list.
+## 十一、开发和发布检查
 
-## Architecture
-
-```text
-Hana tool or widget API
-  -> input schema
-  -> safety policy
-  -> lease/signature/audit helpers
-  -> PowerShell bridge when observation is required
-  -> Windows API / UI Automation
-  -> structured result
+```powershell
+npm run check:syntax
+npm run check:package
+npm run smoke:package
+npm run install-smoke:package
+npm run final-regression
 ```
 
-Core modules:
+构建安装包：
 
-- `lib/powershell.js`: hidden PowerShell runner with temp files
-- `lib/safety.js`: common guards for high-risk actions
-- `lib/windows.js`: shared Windows PowerShell snippets
-- `lib/snapshot-store.js`: lease-bound snapshot store
-- `lib/element-signature.js`: stale-target signatures
-- `lib/approval-store.js`: recent approval bundle store
-- `lib/approval-token-store.js`: non-executable token store with TTL/hash
-- `lib/execution-preflight.js`: read-only preflight gate
-- `lib/final-execution-envelope.js`: dry-run-only final envelope
-- `lib/audit-timeline.js`: local audit timeline with hash-chain support
-- `lib/audit-evidence-export.js`: local evidence package export
-- `tools/*.js`: HanaAgent tool entry points
-- `routes/widget.js`: review cockpit UI and API routes
+```powershell
+npm run build:package
+```
 
-## Safety Principle
+构建器使用稳定文件顺序和固定归档时间戳。同一源码连续构建应得到相同的 ZIP SHA-256。
 
-The plugin should know what it is controlling before it controls it.
+---
 
-Raw coordinate input is allowed only as a guarded fallback, not as the primary interaction model. Real input remains intentionally unopened in the current implementation.
+## 十二、设计原则
+
+Desktop Orchestrator 的核心原则很简单：
+
+> **先确认自己控制的是什么，再去控制它。**
+
+UIA 语义路径优先，视觉和坐标路径作为受保护的后备方案；默认 dry-run；目标身份、窗口身份、前台状态、确认和结果验证缺一不可。
