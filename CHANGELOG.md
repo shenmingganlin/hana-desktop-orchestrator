@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0-alpha.3 - 2026-07-31
+
+### Changed
+
+- Widget now mirrors all 12 plugin settings from the manifest and shows current values from the shared plugin configuration; API keys are masked.
+- Reworked the Widget into a compact mint-and-ink control console with theme-aware dark mode and shorter Chinese labels.
+- Clarified that keyboard and clipboard fallback policy controls confirmation frequency; enabling the fallback remains a separate plugin setting.
+
 ## 0.3.0-alpha.2 - 2026-07-30
 
 ### Added
