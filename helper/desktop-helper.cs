@@ -25,6 +25,8 @@ class Program
 {
     static int Main(string[] args)
     {
+        // Keep native helper JSON text consistent with Node's UTF-8 stdout decoder.
+        Console.OutputEncoding = new UTF8Encoding(false);
         try
         {
             if (args.Length == 0)

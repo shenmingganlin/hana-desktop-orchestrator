@@ -9,6 +9,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="desktop-uia-helper.cs" />
+    <None Include="desktop-uia-helper.cs" />
     <PackageReference Include="System.Drawing.Common" Version="8.0.14" />
   </ItemGroup>
 </Project>

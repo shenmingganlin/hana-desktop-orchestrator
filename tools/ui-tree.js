@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import { buildElementSignature } from "../lib/element-signature.js";
-import { parseJsonOutput, runUiaHelper } from "../lib/powershell.js";
+import { parseJsonOutput, runHelper, runUiaHelper } from "../lib/powershell.js";
 import { saveSnapshot } from "../lib/snapshot-store.js";
 
 export const name = "ui-tree";
@@ -107,14 +107,19 @@ export async function execute(input = {}, toolCtx = {}) {
     elements.push(element);
   }
 
+  const windowInfo = parseJsonOutput(
+    runHelper("window-info", [effectiveHandle]),
+    "window-info",
+  );
   const result = {
     ok: true,
     snapshotId: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     window: {
-      title: "",
-      handle: effectiveHandle,
-      processId: 0,
-      bounds: null, // helper 不返回 window 级 bounds
+      title: windowInfo?.title || "",
+      handle: windowInfo?.handle || effectiveHandle,
+      processId: Number(windowInfo?.processId || 0),
+      processName: windowInfo?.processName || "",
+      bounds: windowInfo?.bounds || null,
     },
     enumerationStrategy: "uia-helper-tree",
     enumerationDiagnostics: {

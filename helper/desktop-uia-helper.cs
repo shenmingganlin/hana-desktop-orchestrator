@@ -25,6 +25,9 @@ class Program
 {
     static int Main(string[] args)
     {
+        // UIA returns managed Unicode strings. Emit JSON as UTF-8 so the
+        // Node bridge can decode Chinese control names without ANSI conversion.
+        Console.OutputEncoding = new UTF8Encoding(false);
         if (args.Length == 0)
         {
             Console.Error.WriteLine("{\"error\":\"usage: desktop-uia-helper.exe <verb> [args]\"}");
