@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0 - 2026-08-03
+
+### Release
+
+- First stable release of the guarded Desktop Orchestrator 0.3 line.
+- Promotes the validated alpha.11 UIA provider retry and UIA pattern normalization fixes.
+- HanaAgent runtime verification passed without executing real desktop input.
+
 ## 0.3.0-alpha.11 - 2026-08-03
 
 ### Fixed
