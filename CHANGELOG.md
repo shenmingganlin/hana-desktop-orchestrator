@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0-alpha.10 - 2026-08-03
+
+### Fixed
+
+- `ui-tree` now retries delayed Chromium/WebView UIA provider expansion after startup.
+- `activateBeforeRead` now uses the existing focus approval and control-session safety gates.
+- Unexpanded providers return retry diagnostics instead of being treated as a complete page tree.
+
 ## 0.3.0-alpha.8 - 2026-07-31
 
 ### Fixed
