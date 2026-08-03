@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0-alpha.11 - 2026-08-03
+
+### Fixed
+
+- Normalize UIA pattern names such as `InvokeIdentifiers.` and `ValueIdentifiers.` so `find-control` filters match their short names.
+- Restore actionable and input control detection in `inspect-window` for helper-reported pattern names.
+
 ## 0.3.0-alpha.10 - 2026-08-03
 
 ### Fixed

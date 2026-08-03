@@ -24,9 +24,13 @@ function normalize(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+function normalizePattern(value) {
+  return normalize(value).replace(/identifiers\.?$/, "");
+}
+
 function hasPattern(element, pattern) {
-  const wanted = normalize(pattern);
-  return Array.isArray(element.patterns) && element.patterns.some((item) => normalize(item) === wanted);
+  const wanted = normalizePattern(pattern);
+  return Array.isArray(element.patterns) && element.patterns.some((item) => normalizePattern(item) === wanted);
 }
 
 function textOf(element) {

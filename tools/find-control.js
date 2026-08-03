@@ -29,6 +29,10 @@ function normalize(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+function normalizePattern(value) {
+  return normalize(value).replace(/identifiers\.?$/, "");
+}
+
 function includes(value, needle) {
   if (!needle) return true;
   return normalize(value).includes(needle);
@@ -91,7 +95,7 @@ function scoreElement(element, filters) {
   }
 
   if (filters.pattern) {
-    const patterns = Array.isArray(element.patterns) ? element.patterns.map(normalize) : [];
+    const patterns = Array.isArray(element.patterns) ? element.patterns.map(normalizePattern) : [];
     if (!patterns.includes(filters.pattern)) return null;
     score += 22;
   }
