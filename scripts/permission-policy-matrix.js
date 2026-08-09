@@ -17,7 +17,7 @@ const expected = [
   [PERMISSION_MODES.FULL_ACCESS, ACTION_RISKS.OBSERVE, true],
   [PERMISSION_MODES.FULL_ACCESS, ACTION_RISKS.COMMON, true],
   [PERMISSION_MODES.FULL_ACCESS, ACTION_RISKS.SENSITIVE, true],
-  [PERMISSION_MODES.FULL_ACCESS, ACTION_RISKS.DESTRUCTIVE, false],
+  [PERMISSION_MODES.FULL_ACCESS, ACTION_RISKS.DESTRUCTIVE, true],
 ];
 
 const cases = [];
@@ -49,6 +49,10 @@ assert.match(disabled.reason, /allowRealInput/);
 cases.push({ name: "permission-mode-does-not-enable-master-switch", passed: true, allowed: false });
 
 assert.equal(classifyAction({ actionType: "manage-window", action: { type: "close" } }), ACTION_RISKS.DESTRUCTIVE);
+const fullAccessDestructive = decidePermission({ input: realInput, config: { ...config, permissionMode: PERMISSION_MODES.FULL_ACCESS }, actionType: "manage-window", action: { type: "close" } });
+assert.equal(fullAccessDestructive.allowed, true);
+assert.equal(fullAccessDestructive.requiresConfirmation, false);
+cases.push({ name: "full-access-single-authorization-layer", passed: true, allowed: true });
 assert.equal(classifyAction({ actionType: "type-element", input: { text: "hello" } }), ACTION_RISKS.COMMON);
 assert.equal(classifyAction({ actionType: "type-element", input: { text: "password" } }), ACTION_RISKS.DESTRUCTIVE);
 assert.equal(classifyAction({ actionType: "ui-tree" }), ACTION_RISKS.OBSERVE);

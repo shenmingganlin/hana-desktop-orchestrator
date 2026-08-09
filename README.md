@@ -93,7 +93,7 @@ npm run final-regression
 5. 目标窗口仍然存在并且处于前台
 6. UIA 目标的 lease 和签名仍然有效
 7. 坐标操作通过命中窗口校验
-8. 需要确认时提供准确短语：
+8. 安全模式或自动复核模式需要确认时提供准确短语：
 
 ```text
 I_UNDERSTAND_DESKTOP_INPUT
@@ -105,7 +105,7 @@ I_UNDERSTAND_DESKTOP_INPUT
 | --- | --- |
 | `safe` | 默认模式。观察和 dry-run 可以使用；真实动作需要确认。 |
 | `auto-review` | 普通动作可以按策略执行，敏感和破坏性动作仍需确认。 |
-| `full-access` | 放宽普通和部分敏感动作的默认确认，但破坏性动作仍保留确认边界。 |
+| `full-access` | 单一授权层。开启真实输入后不再要求动作级确认或确认短语；目标身份和窗口安全校验仍保留。 |
 
 权限模式本身不会自动打开真实输入。`allowRealInput` 仍然是总开关。
 
@@ -261,7 +261,7 @@ Widget `/widget` 提供：
 | `allowClipboardInput` | 允许纯文本剪贴板回退。 | `false` |
 | `permissionMode` | 权限模式：`safe`、`auto-review`、`full-access`。 | `safe` |
 | `confirmationPolicy` | 旧版全局确认策略，动作级策略优先。 | 空 |
-| `actionConfirmation` | 为具体动作设置 `auto` 或 `confirm`。 | `{}` |
+| `actionConfirmation` | 为具体动作设置 `auto` 或 `confirm`；全权模式下忽略。 | `{}` |
 | `defaultSnapshotFormat` | 默认截图格式：`png` 或 `jpeg`。 | `png` |
 | `maxWindowResults` | 窗口列表返回数量上限。 | `40` |
 | `visionApiBase` | 视觉模型 API 地址。 | 空 |

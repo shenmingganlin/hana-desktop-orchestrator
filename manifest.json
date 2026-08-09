@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "desktop-orchestrator",
   "name": "Desktop Orchestrator",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "A powerful but guarded Windows desktop control platform for HanaAgent. Provides desktop snapshots, window targeting, action planning, and protected input execution.",
   "author": {
     "name": "Ganlin & ChatGPT"
@@ -51,7 +51,7 @@
           "enum": ["safe", "auto-review", "full-access"],
           "enumTitles": ["安全", "自动复核", "全权"],
           "title": "权限模式",
-          "description": "控制真实动作的默认权限，需同时开启真实输入。"
+          "description": "全权模式是唯一授权层；需同时开启真实输入。其他模式按确认策略执行。"
         },
         "confirmationPolicy": {
           "type": "string",
@@ -59,14 +59,14 @@
           "enum": ["", "all-real-actions", "sensitive-and-destructive", "destructive-only"],
           "enumTitles": ["按权限模式决定", "全部真实动作", "敏感和破坏性动作", "仅破坏性动作"],
           "title": "确认级别（兼容）",
-          "description": "旧版全局确认设置；动作级策略优先。"
+          "description": "兼容旧配置；全权模式下忽略，不会叠加第二层确认。"
         },
         "actionConfirmation": {
           "type": "object",
           "default": {},
           "additionalProperties": { "type": "string", "enum": ["auto", "confirm"] },
           "title": "动作确认覆盖",
-          "description": "保存侧边栏中的动作级修改；系统底线动作始终需要确认。"
+          "description": "保存侧边栏中的动作级修改；全权模式下由权限模式统一授权。"
         },
         "defaultSnapshotFormat": {
           "type": "string",

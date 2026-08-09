@@ -7,10 +7,10 @@ but bypassing the framework's sequential app-approval flow for automation densit
 ## Core Design
 
 - **Observation first, execution second**: every high-risk tool defaults to `dryRun: true` and returns a structured plan.
-- **Multi-layer guards**: lease snapshots, element signatures, confirmation phrases, and audit trails must all pass before real execution.
+- **Layered execution guards**: lease snapshots, element signatures, foreground/window checks, session integrity, and audit trails protect the target and execution context.
 - **Speed over ceremony**: UIA semantic targeting (element name/automationId) avoids pixel coordinates and vision model latency.
 - **Real input is gated, not forbidden**: when all guards pass, UIA Invoke/SetValue executes directly. Text fallback input is separately gated and never silently enabled.
-- **Action-level confirmation is user-configurable**: the sidebar can change confirmation frequency for registered actions, while the master switch, target identity guards, and system hard-confirmation floor remain enforced.
+- **Permission mode is the authorization layer**: in `full-access`, `allowRealInput` plus the selected mode authorizes the action without action-level confirmation or the confirmation phrase. The sidebar shows and enforces this same rule. Target identity and execution-context guards remain separate.
 
 ## Tool Categories
 
@@ -31,9 +31,9 @@ All staged tools require `dryRun: false` and plugin config `allowRealInput: true
 
 - `safe`: every real action requires `I_UNDERSTAND_DESKTOP_INPUT`.
 - `auto-review`: common actions may run automatically; sensitive and destructive actions require the phrase.
-- `full-access`: common and sensitive actions may run automatically; destructive actions still require the phrase.
+- `full-access`: after `allowRealInput` is enabled, all classified actions use the single full-access authorization layer and do not require a second confirmation phrase or action-level override.
 
-Every mode remains fail-closed when `allowRealInput` is false. The `/widget` policy sidebar stores only explicit `actionConfirmation` overrides. `window.close`, `input.keyboard-fallback`, and `input.clipboard-fallback` may be changed, but the sidebar requires warning acknowledgement before saving a non-default level. External send/submit/publish, payment, and credential actions are hard-confirmation actions and cannot be configured as automatic. A per-action override cannot bypass `safe` mode, `allowRealInput`, lease, signature, foreground, window, approval-bundle, or session gates. This alpha also supports explicit local control sessions with a fixed mode, action scope, optional window/process scope, TTL, action limit, revocation, and SHA-256 integrity hash. A session never replaces the existing lease, signature, window guard, approval bundle, or dry-run gates.
+Every mode remains fail-closed when `allowRealInput` is false. In full-access, the `/widget` policy sidebar displays unified authorization and disables conflicting per-action controls; legacy `actionConfirmation` and `confirmationPolicy` values are ignored for execution. Lease, signature, foreground, window, approval-bundle, and session-integrity gates remain active. This release also supports explicit local control sessions with a fixed mode, action scope, optional window/process scope, TTL, action limit, revocation, and SHA-256 integrity hash. A session never replaces the existing lease, signature, window guard, approval bundle, or dry-run gates.
 
 UIA element actions additionally require:
 

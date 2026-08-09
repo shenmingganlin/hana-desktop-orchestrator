@@ -2,12 +2,12 @@ import { buildControlSession, saveControlSession } from "../lib/control-session.
 import { appendAuditEvent } from "../lib/audit-timeline.js";
 
 export const name = "create-control-session";
-export const description = "创建带 TTL、范围和动作额度的本地控制会话。创建任何权限模式的会话都需要显式本地确认。";
+export const description = "创建带 TTL、范围和动作额度的本地控制会话。full-access 使用单一授权层，其他模式创建时需要显式确认。";
 export const parameters = {
   type: "object",
-  required: ["mode", "scope", "confirmation"],
+  required: ["mode", "scope"],
   properties: {
-    mode: { type: "string", enum: ["safe", "auto-review", "full-access"], description: "会话权限模式。full-access 仍受 destructive 动作确认约束。" },
+    mode: { type: "string", enum: ["safe", "auto-review", "full-access"], description: "会话权限模式。full-access 使用单一授权层，不再要求重复确认。" },
     subject: { type: "string", description: "会话主体标识，默认 local-agent。" },
     scope: {
       type: "object",
@@ -23,14 +23,15 @@ export const parameters = {
     },
     ttlMs: { type: "integer", description: "会话 TTL，范围 30 秒至 24 小时，默认 30 分钟。" },
     maxActions: { type: "integer", description: "最大动作尝试次数，范围 1 至 10000，默认 500。" },
-    confirmation: { type: "string", description: "创建会话确认短语：I_UNDERSTAND_DESKTOP_INPUT" },
+    confirmation: { type: "string", description: "安全/自动复核模式的创建确认短语；full-access 不需要重复确认。" },
   },
 };
 
 const CONFIRMATION = "I_UNDERSTAND_DESKTOP_INPUT";
 
 export async function execute(input = {}) {
-  if (input.confirmation !== CONFIRMATION) {
+  const fullAccess = String(input.mode || "").trim().toLowerCase() === "full-access";
+  if (!fullAccess && input.confirmation !== CONFIRMATION) {
     return JSON.stringify({
       ok: false,
       dryRun: true,

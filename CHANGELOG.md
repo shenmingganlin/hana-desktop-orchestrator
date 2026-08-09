@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.3.1 - 2026-08-09
+
+### Fixed
+
+- Make `full-access` the single authorization layer for real desktop actions; action-level confirmation overrides and the `I_UNDERSTAND_DESKTOP_INPUT` phrase no longer add a second prompt.
+- Apply the same single-layer behavior to destructive, external-send, payment, and credential action classifications when full-access is active.
+- Update the control-session creation tool so full-access sessions do not require a duplicate confirmation phrase.
+- Synchronize the approval sidebar with the runtime policy: full-access displays one unified authorization state and disables conflicting per-action controls.
+- Preserve dry-run, real-input master switches, lease, signature, foreground, window, session-scope, and integrity guards.
+
+### Validation
+
+- Local final regression: 50/50 steps passed.
+- Hana dev-slot self-check: 7/7 passed.
+- Hana protocol matrix: 20/20 passed.
+- Hana fixture sandbox: 12/12 passed.
+- Real Hana UIA click test on the “用量” tab completed without a second confirmation.
+
 ## 0.3.0 - 2026-08-03
 
 ### Release

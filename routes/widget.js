@@ -60,15 +60,17 @@ function getActionPolicies(ctx) {
     policies: listActionPolicies().map((policy) => ({
       ...policy,
       configuredLevel: configured[policy.key] || policy.defaultLevel,
-      effectiveLevel: configured[policy.key] || policy.defaultLevel,
+      effectiveLevel: config.permissionMode === "full-access" ? "auto" : (configured[policy.key] || policy.defaultLevel),
       warningOnChange: policy.warningOnChange === true,
+      singleLayer: config.permissionMode === "full-access",
     })),
     settings: {
       permissionMode: config.permissionMode || "safe",
       allowRealInput: config.allowRealInput === true,
     },
     safety: {
-      hardConfirmationCannotBeDisabled: true,
+      singleAuthorizationLayer: config.permissionMode === "full-access",
+      actionConfirmationOverridesIgnoredInFullAccess: config.permissionMode === "full-access",
       identityGuardsUnaffected: true,
       noDesktopActionExecuted: true,
     },
@@ -347,7 +349,7 @@ function renderWidget(c, ctx) {
           <button type="button" id="refreshPoliciesButton" class="small secondary">刷新</button>
         </div>
       </div>
-      <div class="policy-notice" id="policyNotice">系统底线动作始终需要确认。关闭窗口、键盘回退和剪贴板回退改为自动执行前会显示风险警告。</div>
+      <div class="policy-notice" id="policyNotice">全权模式下由权限模式统一授权，不再叠加动作确认；签名、窗口命中和会话范围校验仍然保留。</div>
       <div id="policyWarningDialog" class="policy-warning-dialog" hidden>
         <strong>确认风险修改</strong>
         <div id="policyWarningText"></div>
@@ -526,11 +528,15 @@ function renderPolicyListHtml(payload) {
   }
   const levels = { auto: "自动执行", confirm: "每次确认" };
   return groups.map((group) => `<section class="policy-group"><div class="policy-group-title">${escapeHtml(group.name)}</div>${group.items.map((policy) => {
-    const locked = policy.hardConfirmation === true || policy.configurable === false;
-    const warning = policy.warningOnChange
-      ? '<span class="policy-warning">修改有风险</span>'
-      : (locked ? '<span class="policy-locked">系统底线</span>' : '');
-    return `<article class="policy-row ${policy.warningOnChange ? "warning-row" : ""}"><div class="policy-copy"><strong>${escapeHtml(policy.title)}</strong><span><code>${escapeHtml(policy.key)}</code> · 默认${escapeHtml(levels[policy.defaultLevel] || policy.defaultLevel)}</span>${warning}<small>${escapeHtml(policy.warning || "")}</small></div><select data-policy-key="${escapeAttr(policy.key)}" ${locked ? "disabled" : ""}><option value="auto" ${policy.effectiveLevel === "auto" ? "selected" : ""}>自动执行</option><option value="confirm" ${policy.effectiveLevel === "confirm" ? "selected" : ""}>每次确认</option></select></article>`;
+    const fullAccess = payload?.settings?.permissionMode === "full-access";
+    const locked = fullAccess || policy.hardConfirmation === true || policy.configurable === false;
+    const warning = fullAccess
+      ? '<span class="policy-locked">由全权模式统一授权</span>'
+      : (policy.warningOnChange
+        ? '<span class="policy-warning">修改有风险</span>'
+        : (locked ? '<span class="policy-locked">系统底线</span>' : ''));
+    const level = fullAccess ? "auto" : policy.effectiveLevel;
+    return `<article class="policy-row ${policy.warningOnChange ? "warning-row" : ""}"><div class="policy-copy"><strong>${escapeHtml(policy.title)}</strong><span><code>${escapeHtml(policy.key)}</code> · ${fullAccess ? "全权模式统一授权" : `默认${escapeHtml(levels[policy.defaultLevel] || policy.defaultLevel)}`}</span>${warning}<small>${escapeHtml(policy.warning || "")}</small></div><select data-policy-key="${escapeAttr(policy.key)}" ${locked ? "disabled" : ""}><option value="auto" ${level === "auto" ? "selected" : ""}>自动执行</option><option value="confirm" ${level === "confirm" ? "selected" : ""}>每次确认</option></select></article>`;
   }).join("")}</section>`).join("");
 }
 
@@ -659,7 +665,9 @@ function renderClientScript() {
     const enabled = payload.settings?.allowRealInput === true;
     els.safetyValue.textContent = enabled ? '真实输入已开启' : '真实输入已关闭';
     els.safetyText.textContent = enabled
-      ? '权限模式：' + (payload.settings.permissionMode || 'safe') + '。真实动作仍受确认、签名和窗口守卫约束。'
+      ? (payload.settings.permissionMode === 'full-access'
+        ? '全权模式：单一授权层，不再要求动作级确认或确认短语；签名、窗口和会话范围校验仍保留。'
+        : '权限模式：' + (payload.settings.permissionMode || 'safe') + '。真实动作仍受确认、签名和窗口守卫约束。')
       : '允许真实输入未开启，真实动作只返回 dry-run 计划。';
     els.safetyCard?.classList.toggle('enabled', enabled);
   }
@@ -685,11 +693,15 @@ function renderClientScript() {
       if (!group) { group = { name: policy.group, items: [] }; groups.push(group); }
       group.items.push(policy);
     }
-    els.policyHeadline.textContent = (payload?.settings?.allowRealInput ? '真实输入总开关已开启' : '真实输入总开关未开启') + ' · ' + policyState.policies.length + ' 项动作';
+    const fullAccess = payload?.settings?.permissionMode === 'full-access';
+    els.policyHeadline.textContent = fullAccess
+      ? '全权模式：单一授权层，不叠加动作确认'
+      : ((payload?.settings?.allowRealInput ? '真实输入总开关已开启' : '真实输入总开关未开启') + ' · ' + policyState.policies.length + ' 项动作');
     els.policyList.innerHTML = groups.map((group) => '<section class="policy-group"><div class="policy-group-title">' + escapeHtml(group.name) + '</div>' + group.items.map((policy) => {
-      const locked = policy.hardConfirmation === true || policy.configurable === false;
-      const warning = policy.warningOnChange ? '<span class="policy-warning">修改有风险</span>' : (locked ? '<span class="policy-locked">系统底线</span>' : '');
-      return '<article class="policy-row ' + (policy.warningOnChange ? 'warning-row' : '') + '"><div class="policy-copy"><strong>' + escapeHtml(policy.title) + '</strong><span><code>' + escapeHtml(policy.key) + '</code> · 默认' + escapeHtml(levelLabels[policy.defaultLevel] || policy.defaultLevel) + '</span>' + warning + '<small>' + escapeHtml(policy.warning || '') + '</small></div><select data-policy-key="' + escapeHtml(policy.key) + '" ' + (locked ? 'disabled' : '') + '><option value="auto" ' + (policy.effectiveLevel === 'auto' ? 'selected' : '') + '>自动执行</option><option value="confirm" ' + (policy.effectiveLevel === 'confirm' ? 'selected' : '') + '>每次确认</option></select></article>';
+      const locked = fullAccess || policy.hardConfirmation === true || policy.configurable === false;
+      const warning = fullAccess ? '<span class="policy-locked">由全权模式统一授权</span>' : (policy.warningOnChange ? '<span class="policy-warning">修改有风险</span>' : (locked ? '<span class="policy-locked">系统底线</span>' : ''));
+      const level = fullAccess ? 'auto' : policy.effectiveLevel;
+      return '<article class="policy-row ' + (policy.warningOnChange ? 'warning-row' : '') + '"><div class="policy-copy"><strong>' + escapeHtml(policy.title) + '</strong><span><code>' + escapeHtml(policy.key) + '</code> · ' + (fullAccess ? '全权模式统一授权' : '默认' + escapeHtml(levelLabels[policy.defaultLevel] || policy.defaultLevel)) + '</span>' + warning + '<small>' + escapeHtml(policy.warning || '') + '</small></div><select data-policy-key="' + escapeHtml(policy.key) + '" ' + (locked ? 'disabled' : '') + '><option value="auto" ' + (level === 'auto' ? 'selected' : '') + '>自动执行</option><option value="confirm" ' + (level === 'confirm' ? 'selected' : '') + '>每次确认</option></select></article>';
     }).join('') + '</section>').join('');
     els.policyList.querySelectorAll('select[data-policy-key]').forEach((select) => select.addEventListener('change', () => {
       const policy = policyState.policies.find((item) => item.key === select.dataset.policyKey);

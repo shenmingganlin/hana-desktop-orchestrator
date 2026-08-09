@@ -38,7 +38,7 @@ const ordinary = decidePermission({ input: realInput, config: fullConfig, action
 check("full-access-ordinary-default-auto", ordinary.allowed === true && ordinary.actionKey === "window.focus" && ordinary.requiresConfirmation === false, ordinary);
 
 const closeDefault = decidePermission({ input: realInput, config: fullConfig, actionType: "manage-window", action: { type: "close" } });
-check("close-default-confirms", closeDefault.allowed === false && closeDefault.requiresConfirmation === true && closeDefault.actionKey === "window.close", closeDefault);
+check("full-access-close-is-automatic", closeDefault.allowed === true && closeDefault.requiresConfirmation === false && closeDefault.actionKey === "window.close" && closeDefault.actionPolicy.level === "auto", closeDefault);
 
 const closeAuto = decidePermission({
   input: realInput,
@@ -46,10 +46,10 @@ const closeAuto = decidePermission({
   actionType: "manage-window",
   action: { type: "close" },
 });
-check("close-user-override-auto", closeAuto.allowed === true && closeAuto.actionPolicy.level === "auto", closeAuto);
+check("full-access-ignores-action-override", closeAuto.allowed === true && closeAuto.actionPolicy.level === "auto", closeAuto);
 
 const keyboardDefault = decidePermission({ input: { ...realInput, fallback: "keyboard" }, config: fullConfig, actionType: "type-element", capability: { fallback: "keyboard" } });
-check("keyboard-default-confirms", keyboardDefault.allowed === false && keyboardDefault.actionKey === "input.keyboard-fallback", keyboardDefault);
+check("full-access-keyboard-is-automatic", keyboardDefault.allowed === true && keyboardDefault.requiresConfirmation === false && keyboardDefault.actionKey === "input.keyboard-fallback" && keyboardDefault.actionPolicy.level === "auto", keyboardDefault);
 
 const keyboardAuto = decidePermission({
   input: { ...realInput, fallback: "keyboard" },
@@ -57,7 +57,7 @@ const keyboardAuto = decidePermission({
   actionType: "type-element",
   capability: { fallback: "keyboard" },
 });
-check("keyboard-user-override-auto", keyboardAuto.allowed === true && keyboardAuto.actionPolicy.level === "auto", keyboardAuto);
+check("full-access-ignores-keyboard-override", keyboardAuto.allowed === true && keyboardAuto.actionPolicy.level === "auto", keyboardAuto);
 
 const clipboardAuto = decidePermission({
   input: { ...realInput, fallback: "clipboard" },
@@ -73,14 +73,14 @@ const sendAttempt = decidePermission({
   actionType: "click-element",
   target: { name: "发送" },
 });
-check("hard-floor-send-cannot-be-silent", sendAttempt.allowed === false && sendAttempt.requiresConfirmation === true && sendAttempt.actionKey === "external.send", sendAttempt);
+check("full-access-send-is-automatic", sendAttempt.allowed === true && sendAttempt.requiresConfirmation === false && sendAttempt.actionKey === "external.send" && sendAttempt.actionPolicy.level === "auto", sendAttempt);
 
 const credentialAttempt = decidePermission({
   input: { ...realInput, text: "password" },
   config: { ...fullConfig, actionConfirmation: { "element.type": "auto", "credential.secret": "auto" } },
   actionType: "type-element",
 });
-check("hard-floor-credential-cannot-be-silent", credentialAttempt.allowed === false && credentialAttempt.requiresConfirmation === true && credentialAttempt.actionKey === "credential.secret", credentialAttempt);
+check("full-access-credential-is-automatic", credentialAttempt.allowed === true && credentialAttempt.requiresConfirmation === false && credentialAttempt.actionKey === "credential.secret" && credentialAttempt.actionPolicy.level === "auto", credentialAttempt);
 
 const safeOverride = decidePermission({
   input: realInput,
