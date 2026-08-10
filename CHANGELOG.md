@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.2 - 2026-08-10
+
+### Fixed
+
+- Increase UIA helper, click-guard, and tray subprocess output limits from 5/4 MB to 32 MB to prevent large UI trees and guard results from being truncated before JSON parsing.
+- Add output-length and tail diagnostics to invalid JSON errors so future truncation is immediately distinguishable from malformed helper output.
+- Add an in-memory output-boundary regression matrix covering multi-megabyte JSON, truncation diagnostics, and process failures.
+
+### Validation
+
+- Current installed community plugin verified at 0.3.1 before this patch.
+- UIA tree read of the current Hana window returned 794 descendants successfully.
+
 ## 0.3.1 - 2026-08-09
 
 ### Fixed

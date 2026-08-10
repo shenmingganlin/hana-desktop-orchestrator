@@ -98,6 +98,10 @@ const steps = [
     command: [nodeCommand, ["scripts/native-safe-smoke.js"]],
   },
   {
+    name: "output-boundary-matrix",
+    command: [nodeCommand, ["scripts/output-boundary-matrix.js"]],
+  },
+  {
     name: "widget-render-check",
     command: [nodeCommand, ["scripts/widget-render-check.js"]],
   },
