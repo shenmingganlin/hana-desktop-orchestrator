@@ -20,7 +20,7 @@ import { consumeControlSession } from "../lib/control-session.js";
 
 export const name = "mouse-drag";
 export const description =
-  "模式2：用真实鼠标从起点拖动到终点（会真的按住并移动系统指针）。用于拖滑块、拖拽排序、画布平移等 UIA 无法表达的操作。真实拖动前发光光标会先沿同一路径预演，需确认短语放行。";
+  "模式2：用真实鼠标从起点拖动到终点（会真的按住并移动系统指针）。用于拖滑块、拖拽排序、画布平移等 UIA 无法表达的操作。full-access 且 allowRealInput=true 时使用插件单一授权层，不要额外索要 I_UNDERSTAND_DESKTOP_INPUT；safe/auto-review 模式按插件实际返回的 requiresConfirmation 决定是否请求确认。";
 
 export const parameters = {
   type: "object",

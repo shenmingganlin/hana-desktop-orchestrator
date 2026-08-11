@@ -102,6 +102,10 @@ const steps = [
     command: [nodeCommand, ["scripts/output-boundary-matrix.js"]],
   },
   {
+    name: "authorization-contract-matrix",
+    command: [nodeCommand, ["scripts/authorization-contract-matrix.js"]],
+  },
+  {
     name: "widget-render-check",
     command: [nodeCommand, ["scripts/widget-render-check.js"]],
   },

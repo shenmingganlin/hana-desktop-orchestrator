@@ -4,7 +4,7 @@ import { DPI_SNIPPET, JSON_RESULT_PREAMBLE, MOUSE_API_SNIPPET } from "../lib/win
 import { consumeControlSession } from "../lib/control-session.js";
 
 export const name = "protected-click";
-export const description = "受保护的桌面点击工具。默认 dry-run，只返回动作计划；真实点击需要配置允许并提供确认短语。";
+export const description = "受保护的桌面点击工具。默认 dry-run，只返回动作计划；full-access 且 allowRealInput=true 时使用插件单一授权层，不要额外索要 I_UNDERSTAND_DESKTOP_INPUT；safe/auto-review 模式按插件实际返回的 requiresConfirmation 决定是否请求确认。";
 export const parameters = {
   type: "object",
   required: ["x", "y"],

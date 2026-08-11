@@ -30,7 +30,7 @@ import { consumeControlSession } from "../lib/control-session.js";
 
 export const name = "mouse-wheel";
 export const description =
-  "模式2：在绝对屏幕坐标处用真实鼠标滚轮滚动（会先把系统指针移到该点，因为 Windows 按光标位置路由滚轮事件）。用于滚动长列表、翻页、缩放画布。notches 正=上/右，负=下/左。真实滚动前发光光标会先飞到同一坐标预演，需确认短语放行。";
+  "模式2：在绝对屏幕坐标处用真实鼠标滚轮滚动（会先把系统指针移到该点，因为 Windows 按光标位置路由滚轮事件）。用于滚动长列表、翻页、缩放画布。notches 正=上/右，负=下/左。full-access 且 allowRealInput=true 时使用插件单一授权层，不要额外索要 I_UNDERSTAND_DESKTOP_INPUT；safe/auto-review 模式按插件实际返回的 requiresConfirmation 决定是否请求确认。";
 
 export const parameters = {
   type: "object",

@@ -3,7 +3,7 @@ import { buildActionPlan, requireRealInputApproval, resolvePluginConfig, REAL_IN
 import { consumeControlSession } from "../lib/control-session.js";
 
 export const name = "focus-window";
-export const description = "按窗口句柄或标题聚焦目标窗口。默认 dry-run，真实聚焦需要确认。";
+export const description = "按窗口句柄或标题聚焦目标窗口。默认 dry-run；full-access 且 allowRealInput=true 时使用插件单一授权层，不要额外索要 I_UNDERSTAND_DESKTOP_INPUT；safe/auto-review 模式按插件实际返回的 requiresConfirmation 决定是否请求确认。";
 export const parameters = {
   type: "object",
   properties: {

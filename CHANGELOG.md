@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.3 - 2026-08-10
+
+### Fixed
+
+- Publish an explicit single-authorization tool contract: full-access with allowRealInput no longer asks the user for a second I_UNDERSTAND_DESKTOP_INPUT prompt.
+- Add machine-readable authorization status to every real-input approval decision, including mode, allowRealInput, singleAuthorizationLayer, and requiresAdditionalConfirmation.
+- Update real desktop tool descriptions so models request confirmation only when the plugin actually returns requiresConfirmation=true or a concrete blocking reason.
+- Add authorization-contract regression coverage while preserving safe and auto-review confirmation behavior.
+
 ## 0.3.2 - 2026-08-10
 
 ### Fixed

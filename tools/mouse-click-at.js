@@ -25,7 +25,7 @@ import { consumeControlSession } from "../lib/control-session.js";
 
 export const name = "mouse-click-at";
 export const description =
-  "模式2：在绝对屏幕坐标处用真实鼠标点击/双击（会真的移动系统指针）。仅当 UIA 找不到可点元素时降级使用。真实点击前发光光标会先飞到同一坐标预演，需确认短语放行。";
+  "模式2：在绝对屏幕坐标处用真实鼠标点击/双击（会真的移动系统指针）。仅当 UIA 找不到可点元素时降级使用。full-access 且 allowRealInput=true 时使用插件单一授权层，不要额外索要 I_UNDERSTAND_DESKTOP_INPUT；safe/auto-review 模式按插件实际返回的 requiresConfirmation 决定是否请求确认。";
 
 export const parameters = {
   type: "object",

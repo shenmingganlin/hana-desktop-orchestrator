@@ -10,7 +10,7 @@ import { consumeControlSession } from "../lib/control-session.js";
 
 export const name = "manage-window";
 export const description =
-  "按窗口句柄或标题管理窗口状态：最大化/最小化/还原/移动/调整大小/优雅关闭。走 ShowWindow/SetWindowPos/WM_CLOSE，不注入鼠标、不猜坐标。move/resize 坐标使用物理像素。默认 dry-run，真实执行需要确认。";
+  "按窗口句柄或标题管理窗口状态：最大化/最小化/还原/移动/调整大小/优雅关闭。走 ShowWindow/SetWindowPos/WM_CLOSE，不注入鼠标、不猜坐标。move/resize 坐标使用物理像素。full-access 且 allowRealInput=true 时使用插件单一授权层，不要额外索要 I_UNDERSTAND_DESKTOP_INPUT；safe/auto-review 模式按插件实际返回的 requiresConfirmation 决定是否请求确认。";
 
 const STATE_ACTIONS = new Set(["maximize", "minimize", "restore", "close"]);
 const GEOMETRY_ACTIONS = new Set(["move", "resize"]);

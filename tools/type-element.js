@@ -10,7 +10,7 @@ import { buildTextInputFallbackPlan, normalizeTextInputFallback, runTextInputFal
 import { JSON_RESULT_PREAMBLE, WINDOW_API_SNIPPET } from "../lib/windows.js";
 
 export const name = "type-element";
-export const description = "按 ui-tree 的 elementId 生成文本输入计划。优先使用 UIA ValuePattern；不可用时可在显式权限和前台窗口守卫下使用 Unicode 键盘或剪贴板回退。";
+export const description = "按 ui-tree 的 elementId 生成文本输入计划。优先使用 UIA ValuePattern；不可用时可在显式权限和前台窗口守卫下使用 Unicode 键盘或剪贴板回退。full-access 且 allowRealInput=true 时使用插件单一授权层，不要额外索要 I_UNDERSTAND_DESKTOP_INPUT；safe/auto-review 模式按插件实际返回的 requiresConfirmation 决定是否请求确认。";
 export const parameters = {
   type: "object",
   required: ["elementId", "text"],

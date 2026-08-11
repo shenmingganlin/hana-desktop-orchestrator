@@ -12,7 +12,7 @@ import { consumeControlSession } from "../lib/control-session.js";
 import { JSON_RESULT_PREAMBLE, WINDOW_API_SNIPPET } from "../lib/windows.js";
 
 export const name = "click-element";
-export const description = "按 ui-tree 的 elementId 生成元素点击计划。支持 leaseId + snapshotId 自动恢复窗口和签名；签名校验通过后才允许 UIA Invoke。";
+export const description = "按 ui-tree 的 elementId 生成元素点击计划。支持 leaseId + snapshotId 自动恢复窗口和签名；签名校验通过后才允许 UIA Invoke。full-access 且 allowRealInput=true 时使用插件单一授权层，不要额外索要 I_UNDERSTAND_DESKTOP_INPUT；safe/auto-review 模式按插件实际返回的 requiresConfirmation 决定是否请求确认。";
 export const parameters = {
   type: "object",
   required: ["elementId"],
